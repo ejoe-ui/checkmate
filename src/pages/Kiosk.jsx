@@ -167,13 +167,14 @@ export default function Kiosk() {
     if (hist) setHistory(hist)
   }, [])
 
-  // ── Realtime subscription ─────────────────────────────────────────────────
+  // ── Realtime subscription + polling fallback ──────────────────────────────
   useEffect(() => {
     loadLiveData()
     const channel = supabase.channel('checkmate_rt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cm_checkouts' }, loadLiveData)
       .subscribe()
-    return () => supabase.removeChannel(channel)
+    const poll = setInterval(loadLiveData, 10000) // fallback: refresh every 10s
+    return () => { supabase.removeChannel(channel); clearInterval(poll) }
   }, [loadLiveData])
 
   // ── Derived counts + filtered rows ────────────────────────────────────────
@@ -371,11 +372,12 @@ export default function Kiosk() {
       setMessage(`✓ Checked out to ${student.name}`)
       setCart([]); setStudent(null); setReason(''); setTeacherName(''); setClassName('')
       setDuration('tomorrow'); setState('scan_student')
+      loadLiveData()
       setTimeout(() => setMessage(''), 3000)
     } catch (err) {
       setMessage('Error: ' + err.message); setTimeout(() => setMessage(''), 4000)
     }
-  }, [cart, student, manager, overrideNeeded, duration, customDue, reason, teacherName, className])
+  }, [cart, student, manager, overrideNeeded, duration, customDue, reason, teacherName, className, loadLiveData])
 
   // ── Confirm return ────────────────────────────────────────────────────────
   const confirmReturn = useCallback(async () => {
@@ -391,11 +393,12 @@ export default function Kiosk() {
       )
       const json = await res.json()
       setMessage(json.error ? json.error : `✓ ${returnPending.name} returned`)
+      if (!json.error) loadLiveData()
     } catch (err) {
       setMessage('Connection error: ' + err.message)
     }
     setReturnPending(null); setTimeout(() => setMessage(''), 3000)
-  }, [returnPending, manager])
+  }, [returnPending, manager, loadLiveData])
 
   // ── Remove from cart ──────────────────────────────────────────────────────
   const removeFromCart = useCallback((index) => {
