@@ -48,8 +48,21 @@ const DURATIONS = [
 ]
 
 const REASONS = [
-  'Class project', 'News broadcast', 'Sports coverage',
-  'Event coverage', 'Teacher loan', 'Other',
+  'Yearbook coverage',
+  'School event coverage',
+  'Sports coverage',
+  'Interview recording',
+  'Other teacher checkout',
+  'Morning announcements',
+  'Photo assignment',
+  'Video assignment',
+  'Commercial/promo project',
+  'Product photography',
+  'Social media content',
+  'Teacher-approved project',
+  'Equipment practice/training',
+  'Makeup/reshoot',
+  'Other',
 ]
 
 function computeDueDate(dur, custom) {
