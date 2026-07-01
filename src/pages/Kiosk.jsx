@@ -459,7 +459,7 @@ export default function Kiosk() {
       {/* ══════════════════════════════════════════════════════════════════
           LEFT PANEL — checkout flow
       ══════════════════════════════════════════════════════════════════ */}
-      <div className={styles.left}>
+      <div className={styles.left} data-mode={mode}>
 
         {/* LOCKED */}
         {state === 'locked' && (
@@ -518,7 +518,7 @@ export default function Kiosk() {
 
             <div className={styles.cart}>
               {cart.length === 0
-                ? <p className={styles.cartEmpty}>Scan equipment to add to cart</p>
+                ? <p className={styles.cartEmpty}>Scan equipment to add to checkout</p>
                 : cart.map((item, i) => (
                   <div key={i} className={styles.cartItem} data-blocked={item.blocked || undefined}>
                     <span className={styles.cartCategory}>{item.category}</span>
@@ -632,8 +632,8 @@ export default function Kiosk() {
 
         {/* RETURN — scan prompt */}
         {state === 'return_scan' && !returnPending && (
-          <div className={styles.prompt}>
-            <div className={styles.icon}>📥</div>
+          <div className={`${styles.prompt} ${styles.promptReturn}`}>
+            <div className={`${styles.icon} ${styles.iconReturn}`}>📥</div>
             <h1>Scan equipment to return</h1>
             {message && <p className={styles.flashMsg}>{message}</p>}
             <p className={styles.hint}>Esc to exit return mode</p>
@@ -694,13 +694,25 @@ export default function Kiosk() {
 
         <div className={styles.tableWrap}>
           {filteredRows.length === 0 ? (
-            <p className={styles.emptyLog}>
-              {searchQuery || filterLate
-                ? 'No matches'
-                : rightTab === 'open'
-                  ? 'No equipment currently checked out'
-                  : 'No history yet'}
-            </p>
+            <div className={styles.emptyState}>
+              <span className={styles.emptyStateIcon}>
+                {searchQuery || filterLate ? '🔍' : rightTab === 'open' ? '📋' : '📁'}
+              </span>
+              <p className={styles.emptyStateTitle}>
+                {searchQuery || filterLate
+                  ? 'No matches'
+                  : rightTab === 'open'
+                    ? 'No open checkouts'
+                    : 'No history yet'}
+              </p>
+              <p className={styles.emptyStateHint}>
+                {searchQuery || filterLate
+                  ? 'Try a different search or clear the filter.'
+                  : rightTab === 'open'
+                    ? 'Items checked out will appear here in real time.'
+                    : 'Returned items will appear here once checked in.'}
+              </p>
+            </div>
           ) : (
             <table className={styles.logTable}>
               <thead>
