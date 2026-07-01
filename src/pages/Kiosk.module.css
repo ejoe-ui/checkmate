@@ -201,15 +201,16 @@
 .primaryBtn:disabled { opacity: 0.38; cursor: not-allowed; }
 
 .cancelBtn {
-  padding: 8px 14px;
+  padding: 8px 16px;
   background: transparent;
-  color: rgba(255,255,255,0.32);
+  color: rgba(255,255,255,0.55);
   font-size: 12px;
-  border: 0.5px solid rgba(255,255,255,0.13);
+  font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.22);
   border-radius: 8px;
   cursor: pointer;
 }
-.cancelBtn:hover { color: white; border-color: rgba(255,255,255,0.38); }
+.cancelBtn:hover { color: white; border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); }
 
 /* ── Asset view ────────────────────────────────────────────────────────────*/
 .assetView {
