@@ -178,8 +178,9 @@ export default function Kiosk() {
 
   // ── PIN submit ───────────────────────────────────────────
   const handlePinSubmit = useCallback(async (e) => {
-    e.preventDefault()
-    if (!pin || pin.length < 4) return
+  e.preventDefault()
+  if (!pin || pin.length < 4) return
+  try {
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-checkout`,
       {
@@ -193,14 +194,18 @@ export default function Kiosk() {
     )
     const json = await res.json()
     if (json.error) {
-      setMessage('Wrong PIN')
-      setTimeout(() => setMessage(''), 2000)
+      setMessage(json.error)
+      setTimeout(() => setMessage(''), 3000)
       return
     }
     setPin('')
     setState('scan_student')
     bumpSession()
-  }, [pin, manager, bumpSession])
+  } catch (err) {
+    setMessage('Connection error: ' + err.message)
+    setTimeout(() => setMessage(''), 4000)
+  }
+}, [pin, manager, bumpSession])
 
   // ── Confirm checkout ─────────────────────────────────────
   const confirmCheckout = useCallback(async () => {
