@@ -157,7 +157,8 @@ export default function Kiosk() {
           id, checked_out_at, checked_in_at, due_at, reason, teacher_name, class_name,
           cm_students!student_id(name, email, phone, class_group),
           cm_equipment!equipment_id(name, category),
-          cm_managers!manager_id(name)
+          checkout_manager:cm_managers!manager_id(name),
+          return_manager:cm_managers!returned_by_manager_id(name)
         `)
         .not('checked_in_at', 'is', null)
         .order('checked_in_at', { ascending: false })
@@ -188,13 +189,14 @@ export default function Kiosk() {
       ? liveLog
       : history.map(r => ({
           ...r,
-          student_name:       r.cm_students?.name,
-          student_email:      r.cm_students?.email,
-          student_phone:      r.cm_students?.phone,
-          class_group:        r.cm_students?.class_group,
-          equipment_name:     r.cm_equipment?.name,
-          equipment_category: r.cm_equipment?.category,
-          manager_name:       r.cm_managers?.name,
+          student_name:            r.cm_students?.name,
+          student_email:           r.cm_students?.email,
+          student_phone:           r.cm_students?.phone,
+          class_group:             r.cm_students?.class_group,
+          equipment_name:          r.cm_equipment?.name,
+          equipment_category:      r.cm_equipment?.category,
+          manager_name:            r.checkout_manager?.name,
+          returned_by_manager_name: r.return_manager?.name,
         }))
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -622,6 +624,10 @@ export default function Kiosk() {
             <h1>Scan equipment to return</h1>
             {message && <p className={styles.flashMsg}>{message}</p>}
             <p className={styles.hint}>Esc to exit return mode</p>
+            <button className={styles.cancelBtn}
+              onClick={() => { setReturnPending(null); setMode('checkout'); setState('scan_student') }}>
+              ← Back to checkout
+            </button>
           </div>
         )}
 
@@ -688,8 +694,10 @@ export default function Kiosk() {
                 <tr>
                   <th>Student</th>
                   <th>Equipment</th>
-                  <th>{rightTab === 'open' ? 'Due' : 'Returned'}</th>
-                  <th>Reason</th>
+                  {rightTab === 'open'
+                    ? <th>Due</th>
+                    : <><th>Checked out</th><th>Returned</th><th>By</th></>
+                  }
                   <th>Status</th>
                 </tr>
               </thead>
@@ -702,32 +710,28 @@ export default function Kiosk() {
                       <td>
                         <div className={styles.studentCol}>
                           <span className={styles.sName}>{row.student_name}</span>
-                          <span className={styles.sSub}>{row.student_email || row.class_group || '—'}</span>
+                          <span className={styles.sSub}>{row.class_group || '—'}</span>
                         </div>
                       </td>
                       <td>
-                        <div className={styles.eqCol}>
-                          <span className={styles.eqName}>{row.equipment_name}</span>
-                          <span className={styles.eqCat}>{row.equipment_category}</span>
-                        </div>
+                        <span className={styles.eqName}>{row.equipment_name}</span>
                       </td>
-                      <td>
-                        <div className={styles.dueCol}>
-                          <span className={styles.dueDate}>
-                            {formatDate(row.checked_in_at || row.due_at)}
-                          </span>
-                          {!row.checked_in_at && (
+                      {rightTab === 'open' ? (
+                        <td>
+                          <div className={styles.dueCol}>
+                            <span className={styles.dueDate}>{formatDate(row.due_at)}</span>
                             <span className={`${styles.dueCountdown} ${isLate ? styles.dueLate : ''}`}>
                               {formatDue(row.due_at)}
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={styles.reasonCell}>
-                          {row.reason || row.teacher_name || '—'}
-                        </span>
-                      </td>
+                          </div>
+                        </td>
+                      ) : (
+                        <>
+                          <td><span className={styles.dateCell}>{formatDate(row.checked_out_at)}</span></td>
+                          <td><span className={styles.dateCell}>{formatDate(row.checked_in_at)}</span></td>
+                          <td><span className={styles.managerCell}>{row.returned_by_manager_name || row.manager_name || '—'}</span></td>
+                        </>
+                      )}
                       <td>
                         <span className={`${styles.statusBadge} ${styles['status_' + status]}`}>
                           {status === 'returned' ? 'In' : status === 'late' ? 'Late' : 'Out'}

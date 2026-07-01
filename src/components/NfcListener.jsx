@@ -33,8 +33,12 @@ export default function NfcListener({ onScan, disabled = false }) {
     return () => el.removeEventListener('keydown', onKeyDown)
   }, [disabled, flush])
 
-  const onBlur = useCallback(() => {
-    if (!disabled) setTimeout(() => inputRef.current?.focus(), 100)
+  const onBlur = useCallback((e) => {
+    if (disabled) return
+    // Don't steal focus from real form inputs — that closes dropdowns
+    const tag = e.relatedTarget?.tagName
+    if (tag && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(tag)) return
+    setTimeout(() => inputRef.current?.focus(), 100)
   }, [disabled])
 
   return (
