@@ -102,13 +102,19 @@ Deno.serve(async (req) => {
         .order('name')
       if (error) return json({ error: error.message }, corsHeaders)
 
-      // Generate fresh 1-hour signed URLs for students with photo_file (lifetouch-raw bucket)
+      // Generate fresh 1-hour signed URLs for students with photo_file.
+      // Mirror PassAble's approach: try lifetouch-raw first, fall back to student-photos.
+      // Numeric-ID filenames (e.g. 801493.jpg) live in student-photos.
+      // lastname_firstname.jpg files live in lifetouch-raw.
       const enriched = await Promise.all((data || []).map(async (s) => {
         if (s.photo_file) {
-          const { data: signed } = await supabase.storage
-            .from('lifetouch-raw')
-            .createSignedUrl(s.photo_file, 3600)
-          if (signed?.signedUrl) return { ...s, photo_url: signed.signedUrl, photo_available: true }
+          const { data: s1 } = await supabase.storage
+            .from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
+          if (s1?.signedUrl) return { ...s, photo_url: s1.signedUrl, photo_available: true }
+
+          const { data: s2 } = await supabase.storage
+            .from('student-photos').createSignedUrl(s.photo_file, 3600)
+          if (s2?.signedUrl) return { ...s, photo_url: s2.signedUrl, photo_available: true }
         }
         return s
       }))
@@ -195,7 +201,7 @@ Deno.serve(async (req) => {
         if (!p) continue
 
         if (p.photo_file) {
-          // Primary: store photo_file for fresh signed URLs at list time
+          // Primary: photo_file set in PassAble — store it directly
           await supabase.from('cm_students').update({
             photo_file: p.photo_file,
             photo_available: true,
@@ -203,7 +209,25 @@ Deno.serve(async (req) => {
           }).eq('id', s.id)
           synced++
         } else if (p.photo_url) {
-          // Fallback: store the URL directly (older PassAble records)
+          // photo_url is like https://.../object/public/student-photos/802063.jpg
+          // Extract the filename and try it in lifetouch-raw (same files, different bucket)
+          const filename = p.photo_url.split('/').pop()
+          if (filename) {
+            const { data: signed } = await supabase.storage
+              .from('lifetouch-raw')
+              .createSignedUrl(filename, 3600)
+            if (signed?.signedUrl) {
+              await supabase.from('cm_students').update({
+                photo_file: filename,
+                photo_url: signed.signedUrl,
+                photo_available: true,
+                last_synced_at: new Date().toISOString(),
+              }).eq('id', s.id)
+              synced++
+              continue
+            }
+          }
+          // lifetouch-raw failed — just store the raw URL as a last resort
           await supabase.from('cm_students').update({
             photo_url: p.photo_url,
             photo_available: true,
