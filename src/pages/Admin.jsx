@@ -313,14 +313,6 @@ function EquipmentTab({ manager, pin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // EQUIPMENT DETAIL PANEL
 // ─────────────────────────────────────────────────────────────────────────────
-const CONDITION_IN_LABELS = {
-  returned_ok:        '✓ Good condition',
-  minor_wear:         'Minor wear',
-  needs_cleaning:     'Needs cleaning',
-  damaged:            '🔴 Damaged',
-  missing_parts:      'Missing parts',
-  not_returned:       'Not returned',
-}
 const NEEDS_RESOLVE = new Set(['Damaged', 'Needs Inspection', 'Maintenance'])
 
 function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
