@@ -193,49 +193,56 @@ Deno.serve(async (req) => {
     }
 
     // ── student.syncFromPassAble ──────────────────────────────────────────
-    // Upserts all PassAble students into cm_students by nfc_uid.
-    // Preserves existing equipment_form_status and temp_access_expires_at.
-    // New students default to no_form.
+    // Upserts ALL PassAble students into cm_students matched by passable_id
+    // (PassAble's `id` field = Aeries student ID). No NFC UID required.
+    // - New students: inserted with no_form, nfc_uid copied from PassAble if present
+    // - Existing students: name/grade/class/photo updated; nfc_uid NEVER overwritten
+    //   if cm_students already has one (manually assigned UIDs are protected)
     if (action === 'student.syncFromPassAble') {
       const { data: passable } = await supabase
         .from('students')
-        .select('nfc_uid, name, email, class_group, phone, photo_file, photo_url')
-        .not('nfc_uid', 'is', null)
+        .select('id, nfc_uid, full_name, grade, period, photo_file, photo_url')
 
       const { data: existing } = await supabase
         .from('cm_students')
-        .select('id, nfc_uid, equipment_form_status, temp_access_expires_at')
+        .select('id, passable_id, nfc_uid, equipment_form_status, temp_access_expires_at')
 
       if (!passable) return json({ error: 'Could not load PassAble students' }, corsHeaders)
 
-      const existingMap = new Map((existing || []).map(s => [s.nfc_uid, s]))
+      // Match by passable_id (Aeries student ID)
+      const existingMap = new Map((existing || []).map(s => [s.passable_id, s]))
 
       let added = 0, updated = 0
 
       for (const p of passable) {
-        if (!p.nfc_uid || !p.name) continue
-        const ex = existingMap.get(p.nfc_uid)
+        if (!p.id || !p.full_name) continue
+        const ex = existingMap.get(p.id)
+        const now = new Date().toISOString()
 
         if (ex) {
-          // Update info but preserve form status and temp pass
-          await supabase.from('cm_students').update({
-            name:           p.name,
-            email:          p.email          || null,
-            class_group:    p.class_group    || null,
-            photo_file:     p.photo_file     || null,
-            last_synced_at: new Date().toISOString(),
-          }).eq('id', ex.id)
+          // Build update — never overwrite nfc_uid if CheckMate already has one
+          const updateFields: Record<string, unknown> = {
+            name:           p.full_name,
+            class_group:    p.period    || null,
+            photo_file:     p.photo_file || null,
+            last_synced_at: now,
+          }
+          // Only sync nfc_uid from PassAble if CheckMate doesn't have one yet
+          if (!ex.nfc_uid && p.nfc_uid) {
+            updateFields.nfc_uid = p.nfc_uid
+          }
+          await supabase.from('cm_students').update(updateFields).eq('id', ex.id)
           updated++
         } else {
           // New student — insert with no_form default
           await supabase.from('cm_students').insert({
-            nfc_uid:               p.nfc_uid,
-            name:                  p.name,
-            email:                 p.email       || null,
-            class_group:           p.class_group || null,
-            photo_file:            p.photo_file  || null,
+            passable_id:           p.id,
+            nfc_uid:               p.nfc_uid  || null,
+            name:                  p.full_name,
+            class_group:           p.period   || null,
+            photo_file:            p.photo_file || null,
             equipment_form_status: 'no_form',
-            last_synced_at:        new Date().toISOString(),
+            last_synced_at:        now,
           })
           added++
         }
