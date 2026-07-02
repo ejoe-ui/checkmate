@@ -469,7 +469,7 @@ function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
                         <td><strong>{h.cm_students?.name ?? '—'}</strong></td>
                         <td className={styles.tdMuted}>{fmtTime(h.checked_out_at)}</td>
                         <td className={styles.tdMuted}>{h.checked_in_at ? fmtTime(h.checked_in_at) : <span className={styles.issueTag}>Still out</span>}</td>
-                        <td className={styles.tdMuted}>{h.condition_out === 'good' ? '✓ Good' : h.condition_out ?? '—'}</td>
+                        <td className={styles.tdMuted}>{CONDITION_OUT_LABELS[h.condition_out] ?? h.condition_out ?? '—'}</td>
                         <td>{h.condition_in ? (
                           <span className={hasIssue ? styles.issueTag : ''}>
                             {CONDITION_IN_LABELS[h.condition_in] ?? h.condition_in}
