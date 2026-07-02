@@ -22,6 +22,36 @@ const FORM_STATUSES = [
   { value: 'restricted',   label: 'Restricted'   },
 ]
 
+const CONDITION_OUT_LABELS = {
+  good:             '✓ Good condition',
+  minor_wear:       '〰 Minor wear',
+  missing_part:     '📦 Missing part/accessory',
+  existing_damage:  '⚠ Existing damage',
+  needs_inspection: '🔍 Needs inspection',
+}
+
+function formatDate(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
+function formatDue(iso) {
+  if (!iso) return { label: '—', overdue: false }
+  const diff = new Date(iso) - new Date()
+  const overdue = diff < 0
+  if (overdue) {
+    const h = Math.floor(-diff / 3600000)
+    const d = Math.floor(-diff / 86400000)
+    return { label: d > 0 ? `${d}d overdue` : `${h}h overdue`, overdue: true }
+  }
+  const d = Math.floor(diff / 86400000)
+  const h = Math.floor(diff / 3600000) % 24
+  const dateStr = new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return { label: d === 0 ? `Today · ${h}h left` : `${dateStr} · ${d}d left`, overdue: false }
+}
+
 // ── API helper ──────────────────────────────────────────────────────────────
 async function adminCall(action, payload = {}) {
   const res = await fetch(ADMIN_FN_URL, {
@@ -172,6 +202,7 @@ function EquipmentTab({ manager, pin }) {
           <table className={styles.table}>
             <thead>
               <tr>
+                <th></th>
                 <th>Name</th>
                 <th>Category</th>
                 <th>Status</th>
@@ -185,6 +216,11 @@ function EquipmentTab({ manager, pin }) {
             <tbody>
               {filtered.map(item => (
                 <tr key={item.id}>
+                  <td style={{ width: 44, padding: '6px 8px 6px 14px' }}>
+                    {item.photo_url
+                      ? <img src={item.photo_url} alt="" className={styles.equipThumb} onError={e => { e.target.style.display='none' }} />
+                      : <span className={styles.equipThumbEmpty}>📷</span>}
+                  </td>
                   <td>
                     <strong>{item.name}</strong>
                     {item.equipment_notes && <div className={styles.tdMuted}>{item.equipment_notes}</div>}
@@ -243,6 +279,7 @@ function EquipmentModal({ item, onSave, onClose }) {
     storage_location: item.storage_location ?? '',
     replacement_cost: item.replacement_cost ?? '',
     equipment_notes:  item.equipment_notes ?? '',
+    photo_url:        item.photo_url ?? '',
     is_container:     item.is_container ?? false,
   })
 
@@ -305,6 +342,18 @@ function EquipmentModal({ item, onSave, onClose }) {
               onChange={e => set('equipment_notes', e.target.value)}
               placeholder="Condition notes, accessories included, etc." />
           </div>
+          <div className={`${styles.formField} ${styles.fullWidth}`}>
+            <label className={styles.formLabel}>Photo URL</label>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <input className={styles.formInput} style={{ flex: 1 }} value={form.photo_url}
+                onChange={e => set('photo_url', e.target.value)}
+                placeholder="https://…  (link to equipment photo)" />
+              {form.photo_url && (
+                <img src={form.photo_url} alt="" className={styles.equipThumbPreview}
+                  onError={e => { e.target.style.display = 'none' }} />
+              )}
+            </div>
+          </div>
           <div className={styles.formField}>
             <label className={styles.formLabel}>Kit / container?</label>
             <select className={styles.formSelect} value={form.is_container ? 'yes' : 'no'}
@@ -324,6 +373,130 @@ function EquipmentModal({ item, onSave, onClose }) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHECKOUTS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+function CheckoutsTab() {
+  const [checkouts, setCheckouts] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [search, setSearch]       = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('cm_open_checkouts')
+      .select('*')
+      .order('checked_out_at', { ascending: false })
+    if (data) setCheckouts(data)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Auto-refresh every 30 s
+  useEffect(() => {
+    const id = setInterval(load, 30000)
+    return () => clearInterval(id)
+  }, [load])
+
+  const now = new Date()
+
+  const filtered = useMemo(() => {
+    if (!search) return checkouts
+    const q = search.toLowerCase()
+    return checkouts.filter(c =>
+      c.student_name?.toLowerCase().includes(q) ||
+      c.equipment_name?.toLowerCase().includes(q) ||
+      c.manager_name?.toLowerCase().includes(q)
+    )
+  }, [checkouts, search])
+
+  const stats = useMemo(() => ({
+    total:   checkouts.length,
+    overdue: checkouts.filter(c => c.due_at && new Date(c.due_at) < now).length,
+  }), [checkouts])
+
+  return (
+    <div className={styles.content}>
+      <div className={styles.statsRow}>
+        <div className={styles.statCard}>
+          <div className={styles.statNum} style={{ color: '#8A5600' }}>{stats.total}</div>
+          <div className={styles.statLabel}>Currently out</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statNum} style={{ color: stats.overdue > 0 ? '#dc2626' : '#A8ABB8' }}>
+            {stats.overdue}
+          </div>
+          <div className={styles.statLabel}>Overdue</div>
+        </div>
+      </div>
+
+      <div className={styles.toolbar}>
+        <input className={styles.searchInput} placeholder="Search student or equipment…"
+          value={search} onChange={e => setSearch(e.target.value)} />
+        <button className={styles.secondaryBtn} onClick={load}>↻ Refresh</button>
+      </div>
+
+      {loading ? (
+        <div className={styles.emptyState}><span className={styles.emptyIcon}>⏳</span><p className={styles.emptyTitle}>Loading…</p></div>
+      ) : filtered.length === 0 ? (
+        <div className={styles.emptyState}>
+          <span className={styles.emptyIcon}>✓</span>
+          <p className={styles.emptyTitle}>{search ? 'No matches' : 'All equipment is in'}</p>
+          <p className={styles.emptyHint}>Nothing is checked out right now.</p>
+        </div>
+      ) : (
+        <div className={styles.tableCard}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Equipment</th>
+                <th>Checked out</th>
+                <th>Due</th>
+                <th>Condition out</th>
+                <th>Reason</th>
+                <th>Manager</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(c => {
+                const due = formatDue(c.due_at)
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      <div className={styles.studentCell}>
+                        <Avatar name={c.student_name} photoUrl={c.student_photo_url} photoAvailable={c.student_photo_available} />
+                        <div>
+                          <div><strong>{c.student_name}</strong></div>
+                          {c.class_group && <div className={styles.tdMuted}>{c.class_group}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <strong>{c.equipment_name}</strong>
+                      <div className={styles.tdMuted}>{c.equipment_category}</div>
+                    </td>
+                    <td className={styles.tdMuted}>{formatDate(c.checked_out_at)}</td>
+                    <td>
+                      <span className={due.overdue ? styles.overdueBadge : styles.tdMuted}>
+                        {due.label}
+                      </span>
+                    </td>
+                    <td className={styles.tdMuted}>{CONDITION_OUT_LABELS[c.condition_out] ?? c.condition_out ?? '—'}</td>
+                    <td className={styles.tdMuted}>{c.reason || '—'}</td>
+                    <td className={styles.tdMuted}>{c.manager_name}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -645,6 +818,11 @@ export default function Admin() {
                 📷 Equipment
               </button>
               <button
+                className={`${styles.tab} ${tab === 'checkouts' ? styles.tabActive : ''}`}
+                onClick={() => setTab('checkouts')}>
+                📋 Checkouts
+              </button>
+              <button
                 className={`${styles.tab} ${tab === 'students' ? styles.tabActive : ''}`}
                 onClick={() => setTab('students')}>
                 🎒 Students
@@ -657,6 +835,7 @@ export default function Admin() {
             </div>
 
             {tab === 'equipment' && <EquipmentTab manager={manager} pin={pin} />}
+            {tab === 'checkouts' && <CheckoutsTab />}
             {tab === 'students'  && <StudentsTab  manager={manager} pin={pin} />}
             {tab === 'managers'  && <ManagersTab />}
           </div>

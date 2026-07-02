@@ -132,6 +132,7 @@ export default function Kiosk() {
   const [returnPending, setReturnPending]   = useState(null)
   const [returnCondition, setReturnCondition] = useState('returned_ok')
   const [returnNotes, setReturnNotes]         = useState('')
+  const [conditionOut, setConditionOut]       = useState('good')
 
   // ── Checkout details ──────────────────────────────────────────────────────
   const [duration, setDuration]       = useState('tomorrow')
@@ -251,6 +252,7 @@ export default function Kiosk() {
     setCart([]); setKitItem(null); setKitChecked({}); setPin(''); setMessage('')
     setOverrideNeeded(false); setOverridePin(''); setReturnPending(null)
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
+    setConditionOut('good')
   }, [])
 
   const bumpSession = useCallback(() => {
@@ -402,7 +404,7 @@ export default function Kiosk() {
             reason: reason || null,
             teacherName: teacherName || null,
             className: className || null,
-            conditionOut: 'good',
+            conditionOut,
           }),
         }
       )
@@ -410,7 +412,7 @@ export default function Kiosk() {
       if (json.error) { setMessage('Checkout failed: ' + json.error); return }
       setMessage(`✓ Checked out to ${student.name}`)
       setCart([]); setStudent(null); setReason(''); setTeacherName(''); setClassName('')
-      setDuration('tomorrow'); setState('scan_student')
+      setDuration('tomorrow'); setConditionOut('good'); setState('scan_student')
       loadLiveData()
       setTimeout(() => setMessage(''), 3000)
     } catch (err) {
@@ -630,6 +632,20 @@ export default function Kiosk() {
                   </div>
                 </div>
               </>
+            )}
+
+            {cart.length > 0 && (
+              <div className={styles.conditionWrap}>
+                <span className={styles.fieldLabel}>Condition at checkout</span>
+                <select className={styles.selectField} value={conditionOut}
+                  onChange={e => setConditionOut(e.target.value)}>
+                  <option value="good">✓ Good condition</option>
+                  <option value="minor_wear">〰 Minor wear</option>
+                  <option value="missing_part">📦 Missing part/accessory</option>
+                  <option value="existing_damage">⚠ Existing damage</option>
+                  <option value="needs_inspection">🔍 Needs inspection</option>
+                </select>
+              </div>
             )}
 
             {overrideNeeded && (

@@ -45,13 +45,14 @@ Deno.serve(async (req) => {
     if (!action && pin !== 'SESSION') {
       const { data: mgr, error } = await supabase
         .from('cm_managers')
-        .select('id, pin, active')
+        .select('id, pin_hash, active')
         .eq('id', managerId)
         .single()
 
       if (error || !mgr) return json({ error: 'Manager not found' }, corsHeaders)
       if (!mgr.active)   return json({ error: 'Manager account is inactive' }, corsHeaders)
-      if (mgr.pin !== pin) return json({ error: 'Incorrect PIN' }, corsHeaders)
+      const storedPin = (mgr.pin_hash ?? '').replace(/^TEMP:/, '')
+      if (storedPin !== pin) return json({ error: 'Incorrect PIN' }, corsHeaders)
 
       return json({ ok: true }, corsHeaders)
     }

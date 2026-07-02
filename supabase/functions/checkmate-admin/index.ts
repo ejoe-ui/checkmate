@@ -45,10 +45,11 @@ Deno.serve(async (req) => {
     if (isWrite) {
       const { data: mgr } = await supabase
         .from('cm_managers')
-        .select('pin, active')
+        .select('pin_hash, active')
         .eq('id', managerId)
         .single()
-      if (!mgr || !mgr.active || mgr.pin !== pin)
+      const storedPin = (mgr?.pin_hash ?? '').replace(/^TEMP:/, '')
+      if (!mgr || !mgr.active || storedPin !== pin)
         return json({ error: 'Unauthorized' }, corsHeaders)
     }
 
