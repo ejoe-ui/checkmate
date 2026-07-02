@@ -381,10 +381,32 @@ function EquipmentModal({ item, onSave, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // CHECKOUTS TAB
 // ═══════════════════════════════════════════════════════════════════════════
-function CheckoutsTab() {
-  const [checkouts, setCheckouts] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [search, setSearch]       = useState('')
+const NOTE_TYPE_LABELS = {
+  contacted:       '✓ Contacted',
+  extended_due:    '📅 Extended',
+  marked_resolved: '✅ Resolved',
+  other:           '📝 Note',
+}
+
+function formatNoteTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
+function CheckoutsTab({ manager, pin }) {
+  const [checkouts, setCheckouts]           = useState([])
+  const [loading, setLoading]               = useState(true)
+  const [search, setSearch]                 = useState('')
+  const [selectedCheckout, setSelectedCheckout] = useState(null)
+  const [overdueNotes, setOverdueNotes]     = useState([])
+  const [notesLoading, setNotesLoading]     = useState(false)
+  const [noteText, setNoteText]             = useState('')
+  const [noteType, setNoteType]             = useState('contacted')
+  const [extendDate, setExtendDate]         = useState('')
+  const [showNoteForm, setShowNoteForm]     = useState(false)
+  const [saving, setSaving]                 = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -420,6 +442,60 @@ function CheckoutsTab() {
     total:   checkouts.length,
     overdue: checkouts.filter(c => c.due_at && new Date(c.due_at) < now).length,
   }), [checkouts])
+
+  async function loadNotes(checkoutId) {
+    setNotesLoading(true)
+    const { data } = await adminCall('checkout.getOverdueNotes', { managerId: manager.id, pin, checkoutId })
+    setOverdueNotes(data || [])
+    setNotesLoading(false)
+  }
+
+  async function openDetail(checkout) {
+    setSelectedCheckout(checkout)
+    setNoteText('')
+    setExtendDate('')
+    setShowNoteForm(false)
+    setNoteType('contacted')
+    await loadNotes(checkout.id)
+  }
+
+  async function quickContacted() {
+    if (saving) return
+    setSaving(true)
+    await adminCall('checkout.addOverdueNote', {
+      managerId: manager.id, pin,
+      checkoutId: selectedCheckout.id,
+      studentId:  selectedCheckout.student_id,
+      note:       'Contacted student',
+      noteType:   'contacted',
+    })
+    await loadNotes(selectedCheckout.id)
+    setSaving(false)
+  }
+
+  async function saveNote() {
+    if (!noteText.trim() || saving) return
+    setSaving(true)
+    const isExtend = noteType === 'extended_due'
+    const extendedDueAt = isExtend && extendDate ? new Date(extendDate).toISOString() : null
+    await adminCall('checkout.addOverdueNote', {
+      managerId: manager.id, pin,
+      checkoutId:    selectedCheckout.id,
+      studentId:     selectedCheckout.student_id,
+      note:          noteText.trim(),
+      noteType,
+      extendedDueAt,
+    })
+    if (extendedDueAt) {
+      setCheckouts(prev => prev.map(c => c.id === selectedCheckout.id ? { ...c, due_at: extendedDueAt } : c))
+      setSelectedCheckout(prev => ({ ...prev, due_at: extendedDueAt }))
+    }
+    setNoteText('')
+    setExtendDate('')
+    setShowNoteForm(false)
+    await loadNotes(selectedCheckout.id)
+    setSaving(false)
+  }
 
   return (
     <div className={styles.content}>
@@ -468,7 +544,8 @@ function CheckoutsTab() {
               {filtered.map(c => {
                 const due = formatDue(c.due_at)
                 return (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={styles.clickableRow}
+                    onClick={() => openDetail(c)}>
                     <td>
                       <div className={styles.studentCell}>
                         <Avatar name={c.student_name} photoUrl={c.student_photo_url} photoAvailable={c.student_photo_available} />
@@ -496,6 +573,157 @@ function CheckoutsTab() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── Overdue detail / note panel ─────────────────────────────────── */}
+      {selectedCheckout && (
+        <div className={styles.modalOverlay} onClick={() => setSelectedCheckout(null)}>
+          <div className={styles.overduePanel} onClick={e => e.stopPropagation()}>
+            <button className={styles.modalClose} onClick={() => setSelectedCheckout(null)}>✕</button>
+
+            {/* Header */}
+            <div className={styles.overduePanelHeader}>
+              <div>
+                <p className={styles.overduePanelLabel}>Checkout detail</p>
+                <h3 className={styles.overduePanelName}>{selectedCheckout.student_name}</h3>
+                <p className={styles.overduePanelSub}>{selectedCheckout.equipment_name} · {selectedCheckout.equipment_category}</p>
+              </div>
+              {(() => {
+                const due = formatDue(selectedCheckout.due_at)
+                return due.overdue
+                  ? <span className={styles.overduePanelBadge}>OVERDUE · {due.label}</span>
+                  : <span className={styles.onTimePanelBadge}>{due.label}</span>
+              })()}
+            </div>
+
+            {/* Meta row */}
+            <div className={styles.overdueMeta}>
+              <div className={styles.overdueMetaItem}>
+                <span className={styles.overdueMetaLabel}>Checked out</span>
+                <span>{formatDate(selectedCheckout.checked_out_at)}</span>
+              </div>
+              <div className={styles.overdueMetaItem}>
+                <span className={styles.overdueMetaLabel}>Due</span>
+                <span>{formatDate(selectedCheckout.due_at)}</span>
+              </div>
+              {selectedCheckout.teacher_name && (
+                <div className={styles.overdueMetaItem}>
+                  <span className={styles.overdueMetaLabel}>Teacher responsible</span>
+                  <span>{selectedCheckout.teacher_name}</span>
+                </div>
+              )}
+              {selectedCheckout.approved_by && (
+                <div className={styles.overdueMetaItem}>
+                  <span className={styles.overdueMetaLabel}>Approved by</span>
+                  <span>{selectedCheckout.approved_by}</span>
+                </div>
+              )}
+              {selectedCheckout.reason && (
+                <div className={styles.overdueMetaItem}>
+                  <span className={styles.overdueMetaLabel}>Reason</span>
+                  <span>{selectedCheckout.reason}</span>
+                </div>
+              )}
+              {selectedCheckout.condition_out && selectedCheckout.condition_out !== 'good' && (
+                <div className={styles.overdueMetaItem}>
+                  <span className={styles.overdueMetaLabel}>Condition at checkout</span>
+                  <span>{CONDITION_OUT_LABELS[selectedCheckout.condition_out] ?? selectedCheckout.condition_out}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick actions */}
+            <div className={styles.overdueQuickActions}>
+              <button className={styles.quickActionBtn} onClick={quickContacted} disabled={saving}>
+                ✓ Contacted
+              </button>
+              <button className={styles.quickActionBtn}
+                onClick={() => { setNoteType('extended_due'); setShowNoteForm(true) }}
+                disabled={saving}>
+                📅 Extend
+              </button>
+              <button className={styles.quickActionBtn}
+                onClick={() => { setNoteType('other'); setShowNoteForm(true) }}
+                disabled={saving}>
+                📝 Add note
+              </button>
+            </div>
+
+            {/* Note form */}
+            {showNoteForm && (
+              <div className={styles.noteForm}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <select className={styles.inlineSelect} value={noteType} onChange={e => setNoteType(e.target.value)}>
+                    <option value="contacted">✓ Contacted student</option>
+                    <option value="extended_due">📅 Extended due date</option>
+                    <option value="marked_resolved">✅ Marked resolved</option>
+                    <option value="other">📝 Other note</option>
+                  </select>
+                </div>
+                {noteType === 'extended_due' && (
+                  <input type="datetime-local" className={styles.formInput}
+                    style={{ marginBottom: 8 }}
+                    value={extendDate} onChange={e => setExtendDate(e.target.value)} />
+                )}
+                <textarea className={styles.formTextarea}
+                  placeholder={
+                    noteType === 'contacted'       ? 'e.g. Reminded student in Period 3…' :
+                    noteType === 'extended_due'    ? 'Reason for extension…' :
+                    noteType === 'marked_resolved' ? 'How was it resolved?…' :
+                    'Add a note…'
+                  }
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  rows={3}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                  <button className={styles.secondaryBtn}
+                    onClick={() => { setShowNoteForm(false); setNoteText(''); setExtendDate('') }}>
+                    Cancel
+                  </button>
+                  <button className={styles.primaryBtn}
+                    onClick={saveNote}
+                    disabled={saving || !noteText.trim()}>
+                    {saving ? '…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Note timeline */}
+            <div className={styles.noteTimeline}>
+              <p className={styles.overdueMetaLabel} style={{ marginBottom: 10 }}>
+                Note history {overdueNotes.length > 0 ? `(${overdueNotes.length})` : ''}
+              </p>
+              {notesLoading ? (
+                <p className={styles.tdMuted}>Loading…</p>
+              ) : overdueNotes.length === 0 ? (
+                <p className={styles.tdMuted} style={{ fontSize: 12, fontStyle: 'italic' }}>
+                  No notes yet. Use quick actions above to log contact or extend the due date.
+                </p>
+              ) : (
+                overdueNotes.map(n => (
+                  <div key={n.id} className={styles.noteEntry}>
+                    <div className={styles.noteEntryHeader}>
+                      <span className={styles.noteTypeTag}>
+                        {NOTE_TYPE_LABELS[n.action] ?? '📝 Note'}
+                      </span>
+                      <span className={styles.noteEntryTime}>
+                        {formatNoteTime(n.created_at)} · {n.cm_managers?.name ?? 'Unknown'}
+                      </span>
+                    </div>
+                    <p className={styles.noteEntryText}>{n.note}</p>
+                    {n.extended_due_at && (
+                      <p className={styles.noteEntryExtend}>
+                        New due date: {formatDate(n.extended_due_at)}
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -836,7 +1064,7 @@ export default function Admin() {
             </div>
 
             {tab === 'equipment' && <EquipmentTab manager={manager} pin={pin} />}
-            {tab === 'checkouts' && <CheckoutsTab />}
+            {tab === 'checkouts' && <CheckoutsTab manager={manager} pin={pin} />}
             {tab === 'students'  && <StudentsTab  manager={manager} pin={pin} />}
             {tab === 'managers'  && <ManagersTab />}
           </div>

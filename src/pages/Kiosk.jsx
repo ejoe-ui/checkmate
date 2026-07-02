@@ -135,6 +135,8 @@ export default function Kiosk() {
   const [returnNotes, setReturnNotes]           = useState('')
   const [conditionOut, setConditionOut]         = useState('good')
   const [conditionOutNotes, setConditionOutNotes] = useState('')
+  const [approvedBy, setApprovedBy]             = useState('')
+  const [noFormOverride, setNoFormOverride]     = useState(false)
 
   // ── Checkout details ──────────────────────────────────────────────────────
   const [duration, setDuration]       = useState('tomorrow')
@@ -254,7 +256,7 @@ export default function Kiosk() {
     setCart([]); setKitItem(null); setKitChecked({}); setPin(''); setMessage('')
     setOverrideNeeded(false); setOverridePin(''); setReturnPending(null); setReturnCheckoutRecord(null)
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
-    setConditionOut('good'); setConditionOutNotes('')
+    setConditionOut('good'); setConditionOutNotes(''); setApprovedBy(''); setNoFormOverride(false)
   }, [])
 
   const bumpSession = useCallback(() => {
@@ -411,7 +413,7 @@ export default function Kiosk() {
       if (json.error) {
         setMessage(json.error); setTimeout(() => setMessage(''), 3000); return
       }
-      setPin(''); setMode('checkout'); setState('scan_student'); bumpSession()
+      setPin(''); setApprovedBy(manager.name); setMode('checkout'); setState('scan_student'); bumpSession()
     } catch (err) {
       setMessage('Connection error: ' + err.message); setTimeout(() => setMessage(''), 4000)
     }
@@ -420,6 +422,8 @@ export default function Kiosk() {
   // ── Confirm checkout ──────────────────────────────────────────────────────
   const confirmCheckout = useCallback(async () => {
     if (!cart.length || !student || overrideNeeded) return
+    if (student.equipment_form_status === 'restricted') return
+    if (student.equipment_form_status === 'no_form' && !noFormOverride) return
     const equipmentIds = cart.map(i => i.id)
     const dueAt = computeDueDate(duration, customDue).toISOString()
     try {
@@ -436,6 +440,7 @@ export default function Kiosk() {
             className: className || null,
             conditionOut,
             conditionOutNotes: conditionOutNotes || null,
+            approvedBy: approvedBy || null,
           }),
         }
       )
@@ -443,13 +448,14 @@ export default function Kiosk() {
       if (json.error) { setMessage('Checkout failed: ' + json.error); return }
       setMessage(`✓ Checked out to ${student.name}`)
       setCart([]); setStudent(null); setReason(''); setTeacherName(''); setClassName('')
-      setDuration('tomorrow'); setConditionOut('good'); setConditionOutNotes(''); setState('scan_student')
+      setDuration('tomorrow'); setConditionOut('good'); setConditionOutNotes('')
+      setNoFormOverride(false); setState('scan_student')
       loadLiveData()
       setTimeout(() => setMessage(''), 3000)
     } catch (err) {
       setMessage('Error: ' + err.message); setTimeout(() => setMessage(''), 4000)
     }
-  }, [cart, student, manager, overrideNeeded, duration, customDue, reason, teacherName, className, loadLiveData])
+  }, [cart, student, manager, overrideNeeded, noFormOverride, duration, customDue, reason, teacherName, className, approvedBy, loadLiveData])
 
   // ── Confirm return ────────────────────────────────────────────────────────
   const confirmReturn = useCallback(async () => {
@@ -601,9 +607,20 @@ export default function Kiosk() {
             {/* Form block warning */}
             {(student.equipment_form_status === 'no_form' || student.equipment_form_status === 'restricted') && (
               <div className={styles.formBlockBanner}>
-                {student.equipment_form_status === 'restricted'
-                  ? '🚫 Student is restricted from equipment checkout.'
-                  : '⚠ No equipment form on file. Requires admin override to proceed.'}
+                {student.equipment_form_status === 'restricted' ? (
+                  '🚫 Student is restricted from equipment checkout.'
+                ) : noFormOverride ? (
+                  <span style={{ color: '#D8A31A' }}>
+                    ⚠ Manager override active — no form on file. Document accordingly.
+                  </span>
+                ) : (
+                  <>
+                    ⚠ No equipment form on file.{' '}
+                    <button className={styles.overrideInlineBtn} onClick={() => setNoFormOverride(true)}>
+                      Manager override
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -651,7 +668,7 @@ export default function Kiosk() {
                     </select>
                   </div>
                   <div className={styles.fieldRow}>
-                    <span className={styles.fieldLabel}>Teacher</span>
+                    <span className={styles.fieldLabel}>Teacher responsible</span>
                     <select className={styles.selectField} value={teacherName} onChange={e => setTeacherName(e.target.value)}>
                       <option value="">— optional —</option>
                       {teachers.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
@@ -661,6 +678,11 @@ export default function Kiosk() {
                     <span className={styles.fieldLabel}>Class</span>
                     <input className={styles.textField} placeholder="e.g. Period 3"
                       value={className} onChange={e => setClassName(e.target.value)} />
+                  </div>
+                  <div className={styles.fieldRow}>
+                    <span className={styles.fieldLabel}>Approved by</span>
+                    <input className={styles.textField} placeholder="Manager name"
+                      value={approvedBy} onChange={e => setApprovedBy(e.target.value)} />
                   </div>
                 </div>
               </>
@@ -716,12 +738,12 @@ export default function Kiosk() {
 
             <div className={styles.cartActions}>
               <button className={styles.cancelBtn}
-                onClick={() => { setStudent(null); setCart([]); setState('scan_student') }}>
+                onClick={() => { setStudent(null); setCart([]); setNoFormOverride(false); setState('scan_student') }}>
                 ← New student
               </button>
               <button className={styles.primaryBtn}
                 onClick={confirmCheckout}
-                disabled={!cart.length || overrideNeeded || student?.equipment_form_status === 'restricted' || student?.equipment_form_status === 'no_form'}>
+                disabled={!cart.length || overrideNeeded || student?.equipment_form_status === 'restricted' || (student?.equipment_form_status === 'no_form' && !noFormOverride)}>
                 Confirm checkout
               </button>
             </div>
@@ -959,7 +981,7 @@ export default function Kiosk() {
               )}
               {selectedRow.teacher_name && (
                 <div className={styles.detailRow}>
-                  <span>Teacher</span><span>{selectedRow.teacher_name}</span>
+                  <span>Teacher responsible</span><span>{selectedRow.teacher_name}</span>
                 </div>
               )}
               {selectedRow.class_name && (

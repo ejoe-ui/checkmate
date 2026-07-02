@@ -548,6 +548,193 @@
   white-space: nowrap;
 }
 
+/* ── Clickable table row ────────────────────────────────────────────────────*/
+.clickableRow { cursor: pointer; }
+.clickableRow:hover td { background: #EDEAFC !important; }
+
+/* ── Overdue detail panel ───────────────────────────────────────────────────*/
+.overduePanel {
+  background: #FFFFFF;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 540px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 26px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+
+.overduePanelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overduePanelLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #A8ABB8;
+  margin: 0 0 4px;
+}
+
+.overduePanelName {
+  font-size: 19px;
+  font-weight: 700;
+  color: #1D2030;
+  margin: 0 0 3px;
+}
+
+.overduePanelSub {
+  font-size: 12px;
+  color: #7A7D8C;
+  margin: 0;
+}
+
+.overduePanelBadge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #dc2626;
+  background: rgba(220,38,38,0.08);
+  border: 1px solid rgba(220,38,38,0.2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.onTimePanelBadge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #166534;
+  background: rgba(55,179,126,0.1);
+  border: 1px solid rgba(55,179,126,0.3);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* ── Overdue meta grid ──────────────────────────────────────────────────────*/
+.overdueMeta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: #F7F6FB;
+  border: 1px solid #E4E1EC;
+  border-radius: 9px;
+  padding: 12px 14px;
+}
+
+.overdueMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #1D2030;
+}
+
+.overdueMetaLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #A8ABB8;
+}
+
+/* ── Quick action buttons ───────────────────────────────────────────────────*/
+.overdueQuickActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quickActionBtn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  background: #F4F3F8;
+  color: #4A2ECC;
+  border: 1px solid #D4CAFE;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.quickActionBtn:hover:not(:disabled) { background: #EEE9FF; border-color: #A594F9; }
+.quickActionBtn:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Note add form ──────────────────────────────────────────────────────────*/
+.noteForm {
+  background: #F7F6FB;
+  border: 1px solid #E4E1EC;
+  border-radius: 9px;
+  padding: 14px;
+}
+
+/* ── Note timeline ──────────────────────────────────────────────────────────*/
+.noteTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid #E4E1EC;
+  padding-top: 14px;
+}
+
+.noteEntry {
+  background: #FAFAFA;
+  border: 1px solid #EDEAFC;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.noteEntryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.noteTypeTag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4A2ECC;
+  background: #EEE9FF;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.noteEntryTime {
+  font-size: 10px;
+  color: #A8ABB8;
+}
+
+.noteEntryText {
+  font-size: 12px;
+  color: #1D2030;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.noteEntryExtend {
+  font-size: 11px;
+  color: #4A2ECC;
+  margin: 0;
+  font-style: italic;
+}
+
 /* ── Stats row ──────────────────────────────────────────────────────────────*/
 .statsRow {
   display: grid;

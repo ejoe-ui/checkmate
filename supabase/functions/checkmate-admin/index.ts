@@ -240,6 +240,52 @@ Deno.serve(async (req) => {
       return json({ ok: true, synced }, corsHeaders)
     }
 
+    // ── checkout.getOverdueNotes ──────────────────────────────────────────
+    // Returns all overdue notes for a checkout, ordered oldest-first.
+    if (action === 'checkout.getOverdueNotes') {
+      const { checkoutId } = body
+      const { data, error } = await supabase
+        .from('cm_overdue_notes')
+        .select('id, note, action, extended_due_at, created_at, cm_managers!manager_id(name)')
+        .eq('checkout_id', checkoutId)
+        .order('created_at', { ascending: true })
+      return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
+    }
+
+    // ── checkout.addOverdueNote ───────────────────────────────────────────
+    // Adds a note to cm_overdue_notes. If noteType='extended_due', also
+    // updates due_at on the checkout row.
+    if (action === 'checkout.addOverdueNote') {
+      const { checkoutId, studentId, note, noteType, extendedDueAt } = body
+      if (!checkoutId || !note) return json({ error: 'checkoutId and note are required' }, corsHeaders)
+
+      const validTypes = ['contacted', 'extended_due', 'marked_resolved', 'other']
+      const resolvedType = validTypes.includes(noteType) ? noteType : 'other'
+
+      const { error: insertErr } = await supabase
+        .from('cm_overdue_notes')
+        .insert({
+          checkout_id:     checkoutId,
+          student_id:      studentId   ?? null,
+          manager_id:      managerId,
+          note,
+          action:          resolvedType,
+          extended_due_at: extendedDueAt ?? null,
+        })
+      if (insertErr) return json({ error: insertErr.message }, corsHeaders)
+
+      // If extending due date, update the checkout row too
+      if (resolvedType === 'extended_due' && extendedDueAt) {
+        const { error: extErr } = await supabase
+          .from('cm_checkouts')
+          .update({ due_at: extendedDueAt })
+          .eq('id', checkoutId)
+        if (extErr) return json({ error: extErr.message }, corsHeaders)
+      }
+
+      return json({ ok: true }, corsHeaders)
+    }
+
     // ── manager.list ──────────────────────────────────────────────────────
     if (action === 'manager.list') {
       const { data, error } = await supabase

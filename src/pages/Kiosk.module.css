@@ -394,7 +394,27 @@
   border-radius: 8px;
   padding: 9px 12px;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
+
+/* Manager override inline button (in formBlockBanner for no_form) */
+.overrideInlineBtn {
+  font-size: 11px;
+  font-weight: 700;
+  color: #D8A31A;
+  background: rgba(216,163,26,0.12);
+  border: 1px solid rgba(216,163,26,0.35);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+.overrideInlineBtn:hover { background: rgba(216,163,26,0.22); }
 
 /* ── Checkout condition banner (shown on return card for context) ────────────*/
 .checkoutConditionBanner {
