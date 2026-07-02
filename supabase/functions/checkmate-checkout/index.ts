@@ -99,21 +99,22 @@ Deno.serve(async (req) => {
     }
 
     // ── MODE 2: Checkout ───────────────────────────────────────────────────
-    const { studentId, equipmentIds, dueAt, reason, teacherName, className, conditionOut } = body
+    const { studentId, equipmentIds, dueAt, reason, teacherName, className, conditionOut, conditionOutNotes } = body
 
     if (!studentId || !equipmentIds?.length || !dueAt) {
       return json({ error: 'Missing required checkout fields' }, corsHeaders)
     }
 
     const rows = equipmentIds.map((equipmentId: string) => ({
-      student_id:   studentId,
-      equipment_id: equipmentId,
-      manager_id:   managerId,
-      due_at:       dueAt,
-      reason:       reason       ?? null,
-      teacher_name: teacherName  ?? null,
-      class_name:   className    ?? null,
-      condition_out: conditionOut ?? 'good',
+      student_id:          studentId,
+      equipment_id:        equipmentId,
+      manager_id:          managerId,
+      due_at:              dueAt,
+      reason:              reason            ?? null,
+      teacher_name:        teacherName       ?? null,
+      class_name:          className         ?? null,
+      condition_out:       conditionOut      ?? 'good',
+      condition_out_notes: conditionOutNotes ?? null,
     }))
 
     const { error: insertErr } = await supabase

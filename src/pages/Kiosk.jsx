@@ -129,10 +129,12 @@ export default function Kiosk() {
   const [message, setMessage]               = useState('')
   const [overrideNeeded, setOverrideNeeded] = useState(false)
   const [overridePin, setOverridePin]       = useState('')
-  const [returnPending, setReturnPending]   = useState(null)
-  const [returnCondition, setReturnCondition] = useState('returned_ok')
-  const [returnNotes, setReturnNotes]         = useState('')
-  const [conditionOut, setConditionOut]       = useState('good')
+  const [returnPending, setReturnPending]       = useState(null)
+  const [returnCheckoutRecord, setReturnCheckoutRecord] = useState(null)
+  const [returnCondition, setReturnCondition]   = useState('returned_ok')
+  const [returnNotes, setReturnNotes]           = useState('')
+  const [conditionOut, setConditionOut]         = useState('good')
+  const [conditionOutNotes, setConditionOutNotes] = useState('')
 
   // ── Checkout details ──────────────────────────────────────────────────────
   const [duration, setDuration]       = useState('tomorrow')
@@ -250,9 +252,9 @@ export default function Kiosk() {
     clearTimeout(sessionTimer.current)
     setMode('locked'); setState('locked'); setManager(null); setStudent(null)
     setCart([]); setKitItem(null); setKitChecked({}); setPin(''); setMessage('')
-    setOverrideNeeded(false); setOverridePin(''); setReturnPending(null)
+    setOverrideNeeded(false); setOverridePin(''); setReturnPending(null); setReturnCheckoutRecord(null)
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
-    setConditionOut('good')
+    setConditionOut('good'); setConditionOutNotes('')
   }, [])
 
   const bumpSession = useCallback(() => {
@@ -374,6 +376,16 @@ export default function Kiosk() {
     if (state === 'return_scan') {
       if (result.type === 'equipment') {
         setReturnPending(result.data)
+        // Fetch the open checkout so we can show checkout condition on the return card
+        const { data: checkoutRecord } = await supabase
+          .from('cm_checkouts')
+          .select('condition_out, condition_out_notes, cm_students!student_id(name)')
+          .eq('equipment_id', result.data.id)
+          .is('checked_in_at', null)
+          .order('checked_out_at', { ascending: false })
+          .limit(1)
+          .single()
+        setReturnCheckoutRecord(checkoutRecord || null)
       } else {
         setMessage('Scan equipment, not a student or manager badge')
         setTimeout(() => setMessage(''), 2000)
@@ -423,6 +435,7 @@ export default function Kiosk() {
             teacherName: teacherName || null,
             className: className || null,
             conditionOut,
+            conditionOutNotes: conditionOutNotes || null,
           }),
         }
       )
@@ -430,7 +443,7 @@ export default function Kiosk() {
       if (json.error) { setMessage('Checkout failed: ' + json.error); return }
       setMessage(`✓ Checked out to ${student.name}`)
       setCart([]); setStudent(null); setReason(''); setTeacherName(''); setClassName('')
-      setDuration('tomorrow'); setConditionOut('good'); setState('scan_student')
+      setDuration('tomorrow'); setConditionOut('good'); setConditionOutNotes(''); setState('scan_student')
       loadLiveData()
       setTimeout(() => setMessage(''), 3000)
     } catch (err) {
@@ -464,6 +477,7 @@ export default function Kiosk() {
       setMessage('Connection error: ' + err.message)
     }
     setReturnPending(null)
+    setReturnCheckoutRecord(null)
     setReturnCondition('returned_ok')
     setReturnNotes('')
     setTimeout(() => setMessage(''), 3000)
@@ -656,13 +670,26 @@ export default function Kiosk() {
               <div className={styles.conditionWrap}>
                 <span className={styles.fieldLabel}>Condition at checkout</span>
                 <select className={styles.selectField} value={conditionOut}
-                  onChange={e => setConditionOut(e.target.value)}>
+                  onChange={e => { setConditionOut(e.target.value); setConditionOutNotes('') }}>
                   <option value="good">✓ Good condition</option>
                   <option value="minor_wear">〰 Minor wear</option>
                   <option value="missing_part">📦 Missing part/accessory</option>
                   <option value="existing_damage">⚠ Existing damage</option>
                   <option value="needs_inspection">🔍 Needs inspection</option>
                 </select>
+                {conditionOut !== 'good' && (
+                  <input
+                    className={styles.textField}
+                    placeholder={
+                      conditionOut === 'missing_part'    ? 'What is missing? e.g. lens cap, battery…' :
+                      conditionOut === 'existing_damage' ? 'Describe the damage…' :
+                      conditionOut === 'needs_inspection'? 'What needs to be checked?…' :
+                      'Notes (optional)'
+                    }
+                    value={conditionOutNotes}
+                    onChange={e => setConditionOutNotes(e.target.value)}
+                  />
+                )}
               </div>
             )}
 
@@ -741,6 +768,33 @@ export default function Kiosk() {
             <p className={styles.label}>Return equipment</p>
             <h1>{returnPending.name}</h1>
             <p className={styles.sub}>{returnPending.category}</p>
+
+            {/* Checkout condition context — shows what was documented at checkout */}
+            {returnCheckoutRecord && (
+              <div className={styles.checkoutConditionBanner}>
+                <span className={styles.checkoutConditionLabel}>Condition at checkout</span>
+                <span className={styles.checkoutConditionValue}>
+                  {{
+                    good:             '✓ Good condition',
+                    minor_wear:       '〰 Minor wear',
+                    missing_part:     '📦 Missing part/accessory',
+                    existing_damage:  '⚠ Existing damage',
+                    needs_inspection: '🔍 Needs inspection',
+                  }[returnCheckoutRecord.condition_out] ?? returnCheckoutRecord.condition_out}
+                </span>
+                {returnCheckoutRecord.condition_out_notes && (
+                  <span className={styles.checkoutConditionNote}>
+                    {returnCheckoutRecord.condition_out_notes}
+                  </span>
+                )}
+                {returnCheckoutRecord.cm_students?.name && (
+                  <span className={styles.checkoutConditionStudent}>
+                    Checked out by {returnCheckoutRecord.cm_students.name}
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className={styles.conditionWrap}>
               <span className={styles.fieldLabel}>Condition</span>
               <select className={styles.selectField} value={returnCondition}
