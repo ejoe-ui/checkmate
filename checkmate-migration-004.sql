@@ -1,11 +1,19 @@
 -- CheckMate Migration 004
 -- Run in Supabase → SQL Editor
 -- Adds photo_url to equipment; updates condition_out values to match UI
+-- Adds photo_file to cm_students (matches PassAble students.photo_file)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── cm_equipment: add photo_url ───────────────────────────────────────────────
 ALTER TABLE cm_equipment
   ADD COLUMN IF NOT EXISTS photo_url text;
+
+-- ── cm_students: add photo_file ───────────────────────────────────────────────
+-- Stores the filename (e.g. '802063.jpg') from PassAble students.photo_file.
+-- Photos live in the lifetouch-raw Supabase Storage bucket.
+-- Signed URLs are generated at display time — not stored.
+ALTER TABLE cm_students
+  ADD COLUMN IF NOT EXISTS photo_file text;
 
 -- ── cm_checkouts: update condition_out check constraint ───────────────────────
 -- Drop old constraint (added in migration-003 with 'good','fair','poor','damaged')

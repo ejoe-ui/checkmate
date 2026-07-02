@@ -64,11 +64,12 @@ async function adminCall(action, payload = {}) {
 
 // ── Small avatar component ──────────────────────────────────────────────────
 function Avatar({ name, photoUrl, photoAvailable, size = 'sm' }) {
+  const [imgErr, setImgErr] = useState(false)
   const cls = size === 'sm' ? styles.avatarSm : ''
   const initCls = size === 'sm' ? styles.avatarSmInitials : ''
   const initials = name?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() ?? '?'
-  if (photoAvailable && photoUrl) {
-    return <img src={photoUrl} alt="" className={cls} />
+  if (photoAvailable && photoUrl && !imgErr) {
+    return <img src={photoUrl} alt="" className={cls} onError={() => setImgErr(true)} />
   }
   return <span className={initCls}>{initials}</span>
 }

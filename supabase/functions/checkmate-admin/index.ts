@@ -98,9 +98,22 @@ Deno.serve(async (req) => {
     if (action === 'student.list') {
       const { data, error } = await supabase
         .from('cm_students')
-        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at')
+        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at')
         .order('name')
-      return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
+      if (error) return json({ error: error.message }, corsHeaders)
+
+      // Generate fresh 1-hour signed URLs for students with photo_file (lifetouch-raw bucket)
+      const enriched = await Promise.all((data || []).map(async (s) => {
+        if (s.photo_file) {
+          const { data: signed } = await supabase.storage
+            .from('lifetouch-raw')
+            .createSignedUrl(s.photo_file, 3600)
+          if (signed?.signedUrl) return { ...s, photo_url: signed.signedUrl, photo_available: true }
+        }
+        return s
+      }))
+
+      return json({ data: enriched }, corsHeaders)
     }
 
     // ── student.setFormStatus ─────────────────────────────────────────────
@@ -116,7 +129,8 @@ Deno.serve(async (req) => {
     }
 
     // ── student.syncPhoto ─────────────────────────────────────────────────
-    // Copies photo_url from PassAble's students table to cm_students, matched by nfc_uid
+    // Copies photo_file from PassAble's students table to cm_students, matched by nfc_uid.
+    // Photos live in the lifetouch-raw bucket; signed URLs are generated at list time.
     if (action === 'student.syncPhoto') {
       const { studentId } = body
       const { data: cmStudent } = await supabase
@@ -127,19 +141,27 @@ Deno.serve(async (req) => {
 
       if (!cmStudent) return json({ error: 'Student not found' }, corsHeaders)
 
-      // Look up photo in PassAble students table by nfc_uid
+      // Look up photo_file in PassAble students table by nfc_uid
       const { data: passableStudent } = await supabase
         .from('students')
-        .select('photo_url')
+        .select('photo_file, photo_url')
         .eq('nfc_uid', cmStudent.nfc_uid)
         .single()
 
-      if (!passableStudent?.photo_url) return json({ error: 'No photo found in PassAble' }, corsHeaders)
+      if (!passableStudent?.photo_file) {
+        // Fallback: use photo_url if no photo_file
+        if (!passableStudent?.photo_url) return json({ error: 'No photo found in PassAble' }, corsHeaders)
+        const { error } = await supabase.from('cm_students').update({
+          photo_url: passableStudent.photo_url, photo_available: true,
+          last_synced_at: new Date().toISOString(),
+        }).eq('id', studentId)
+        return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+      }
 
       const { error } = await supabase
         .from('cm_students')
         .update({
-          photo_url:       passableStudent.photo_url,
+          photo_file:      passableStudent.photo_file,
           photo_available: true,
           last_synced_at:  new Date().toISOString(),
         })
@@ -149,27 +171,42 @@ Deno.serve(async (req) => {
     }
 
     // ── student.syncAllPhotos ─────────────────────────────────────────────
-    // Batch sync all photos from PassAble
+    // Batch sync all photos from PassAble.
+    // Copies photo_file (not photo_url) — photos live in lifetouch-raw bucket.
+    // Signed URLs are generated at list time, not stored.
     if (action === 'student.syncAllPhotos') {
       const { data: cmStudents } = await supabase
         .from('cm_students')
         .select('id, nfc_uid')
 
+      // Prefer photo_file; fall back to photo_url for students without one
       const { data: passableStudents } = await supabase
         .from('students')
-        .select('nfc_uid, photo_url')
-        .not('photo_url', 'is', null)
+        .select('nfc_uid, photo_file, photo_url')
+        .or('photo_file.not.is.null,photo_url.not.is.null')
 
       if (!cmStudents || !passableStudents) return json({ error: 'Could not load students' }, corsHeaders)
 
-      const photoMap = new Map(passableStudents.map(s => [s.nfc_uid, s.photo_url]))
+      const photoMap = new Map(passableStudents.map(s => [s.nfc_uid, s]))
       let synced = 0
 
       for (const s of cmStudents) {
-        const photoUrl = photoMap.get(s.nfc_uid)
-        if (photoUrl) {
+        const p = photoMap.get(s.nfc_uid)
+        if (!p) continue
+
+        if (p.photo_file) {
+          // Primary: store photo_file for fresh signed URLs at list time
           await supabase.from('cm_students').update({
-            photo_url: photoUrl, photo_available: true,
+            photo_file: p.photo_file,
+            photo_available: true,
+            last_synced_at: new Date().toISOString(),
+          }).eq('id', s.id)
+          synced++
+        } else if (p.photo_url) {
+          // Fallback: store the URL directly (older PassAble records)
+          await supabase.from('cm_students').update({
+            photo_url: p.photo_url,
+            photo_available: true,
             last_synced_at: new Date().toISOString(),
           }).eq('id', s.id)
           synced++
