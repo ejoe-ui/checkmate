@@ -305,6 +305,24 @@ export default function Kiosk() {
       }
       if (result.type !== 'student') return
       const s = result.data
+
+      // Generate a fresh signed URL for the student photo (mirrors PassAble + admin edge fn logic)
+      if (s.photo_file) {
+        const { data: sig1 } = await supabase.storage
+          .from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
+        if (sig1?.signedUrl) {
+          s.photo_url = sig1.signedUrl
+          s.photo_available = true
+        } else {
+          const { data: sig2 } = await supabase.storage
+            .from('student-photos').createSignedUrl(s.photo_file, 3600)
+          if (sig2?.signedUrl) {
+            s.photo_url = sig2.signedUrl
+            s.photo_available = true
+          }
+        }
+      }
+
       const { data: overdue } = await supabase
         .from('cm_open_checkouts').select('id').eq('student_nfc_uid', s.nfc_uid)
       if (s.status === 'Suspended') {
