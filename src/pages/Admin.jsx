@@ -414,7 +414,37 @@ function CheckoutsTab({ manager, pin }) {
       .from('cm_open_checkouts')
       .select('*')
       .order('checked_out_at', { ascending: false })
-    if (data) setCheckouts(data)
+
+    if (!data) { setLoading(false); return }
+
+    // Generate fresh signed URLs for student photos.
+    // cm_open_checkouts.student_photo_url is the stored value in cm_students
+    // (stale or null). Regenerate the same way as student.list in checkmate-admin.
+    const photoIds = [...new Set(
+      data.filter(c => c.student_photo_available && c.student_id).map(c => c.student_id)
+    )]
+
+    const urlMap = new Map()
+    if (photoIds.length > 0) {
+      const { data: students } = await supabase
+        .from('cm_students')
+        .select('id, photo_file')
+        .in('id', photoIds)
+
+      await Promise.all((students || []).map(async (s) => {
+        if (!s.photo_file) return
+        const { data: sig1 } = await supabase.storage
+          .from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
+        if (sig1?.signedUrl) { urlMap.set(s.id, sig1.signedUrl); return }
+        const { data: sig2 } = await supabase.storage
+          .from('student-photos').createSignedUrl(s.photo_file, 3600)
+        if (sig2?.signedUrl) urlMap.set(s.id, sig2.signedUrl)
+      }))
+    }
+
+    setCheckouts(data.map(c =>
+      urlMap.has(c.student_id) ? { ...c, student_photo_url: urlMap.get(c.student_id) } : c
+    ))
     setLoading(false)
   }, [])
 
