@@ -65,8 +65,8 @@ async function adminCall(action, payload = {}) {
 // ── Small avatar component ──────────────────────────────────────────────────
 function Avatar({ name, photoUrl, photoAvailable, size = 'sm' }) {
   const [imgErr, setImgErr] = useState(false)
-  const cls = size === 'sm' ? styles.avatarSm : ''
-  const initCls = size === 'sm' ? styles.avatarSmInitials : ''
+  const cls      = size === 'lg' ? styles.avatarLg      : styles.avatarSm
+  const initCls  = size === 'lg' ? styles.avatarLgInitials : styles.avatarSmInitials
   const initials = name?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() ?? '?'
   if (photoAvailable && photoUrl && !imgErr) {
     return <img src={photoUrl} alt="" className={cls} onError={() => setImgErr(true)} />
@@ -614,10 +614,18 @@ function CheckoutsTab({ manager, pin }) {
 
             {/* Header */}
             <div className={styles.overduePanelHeader}>
-              <div>
-                <p className={styles.overduePanelLabel}>Checkout detail</p>
-                <h3 className={styles.overduePanelName}>{selectedCheckout.student_name}</h3>
-                <p className={styles.overduePanelSub}>{selectedCheckout.equipment_name} · {selectedCheckout.equipment_category}</p>
+              <div className={styles.overduePanelIdentity}>
+                <Avatar
+                  name={selectedCheckout.student_name}
+                  photoUrl={selectedCheckout.student_photo_url}
+                  photoAvailable={selectedCheckout.student_photo_available}
+                  size="lg"
+                />
+                <div>
+                  <p className={styles.overduePanelLabel}>Checkout detail</p>
+                  <h3 className={styles.overduePanelName}>{selectedCheckout.student_name}</h3>
+                  <p className={styles.overduePanelSub}>{selectedCheckout.equipment_name} · {selectedCheckout.equipment_category}</p>
+                </div>
               </div>
               {(() => {
                 const due = formatDue(selectedCheckout.due_at)
