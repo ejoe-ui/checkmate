@@ -239,11 +239,13 @@
   white-space: nowrap;
   border: 1px solid;
 }
-.status_available   { background: rgba(55,179,126,0.1);  color: #166534; border-color: rgba(55,179,126,0.3); }
-.status_checked_out { background: #FFF1D6; color: #8A5600; border-color: #F2C56B; }
-.status_maintenance { background: rgba(124,92,255,0.1); color: #4B2FCC; border-color: rgba(124,92,255,0.3); }
-.status_retired     { background: rgba(0,0,0,0.05); color: #A8ABB8; border-color: #E4E1EC; }
-.status_lost        { background: rgba(220,38,38,0.08); color: #dc2626; border-color: rgba(220,38,38,0.25); }
+.status_available        { background: rgba(55,179,126,0.1);  color: #166534; border-color: rgba(55,179,126,0.3); }
+.status_checked_out      { background: #FFF1D6; color: #8A5600; border-color: #F2C56B; }
+.status_damaged          { background: rgba(220,38,38,0.08); color: #dc2626; border-color: rgba(220,38,38,0.4); font-weight: 600; }
+.status_needs_inspection { background: rgba(234,88,12,0.08); color: #c2410c; border-color: rgba(234,88,12,0.35); }
+.status_maintenance      { background: rgba(124,92,255,0.1); color: #4B2FCC; border-color: rgba(124,92,255,0.3); }
+.status_retired          { background: rgba(0,0,0,0.05); color: #A8ABB8; border-color: #E4E1EC; }
+.status_lost             { background: rgba(220,38,38,0.08); color: #dc2626; border-color: rgba(220,38,38,0.25); }
 
 /* ── Form status badges ─────────────────────────────────────────────────────*/
 .formBadge {

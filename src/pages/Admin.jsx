@@ -13,7 +13,7 @@ import styles from './Admin.module.css'
 const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-admin`
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const EQUIPMENT_STATUSES = ['Available', 'Checked Out', 'Maintenance', 'Retired', 'Lost']
+const EQUIPMENT_STATUSES = ['Available', 'Checked Out', 'Damaged', 'Needs Inspection', 'Maintenance', 'Retired', 'Lost']
 const EQUIPMENT_CATEGORIES = ['Camera', 'Lens', 'Audio', 'Lighting', 'Tripod', 'Bag', 'Drone', 'Computer', 'Accessory', 'Other']
 const FORM_STATUSES = [
   { value: 'form_on_file', label: 'Form on file' },
@@ -116,11 +116,13 @@ function FormBadge({ status, onClick }) {
 
 // ── Equipment status badge ───────────────────────────────────────────────────
 const STATUS_CLS = {
-  'Available':   styles.status_available,
-  'Checked Out': styles.status_checked_out,
-  'Maintenance': styles.status_maintenance,
-  'Retired':     styles.status_retired,
-  'Lost':        styles.status_lost,
+  'Available':        styles.status_available,
+  'Checked Out':      styles.status_checked_out,
+  'Damaged':          styles.status_damaged,
+  'Needs Inspection': styles.status_needs_inspection,
+  'Maintenance':      styles.status_maintenance,
+  'Retired':          styles.status_retired,
+  'Lost':             styles.status_lost,
 }
 function StatusBadge({ status }) {
   return (
@@ -163,7 +165,7 @@ function EquipmentTab({ manager, pin }) {
     total:      equipment.length,
     available:  equipment.filter(e => e.status === 'Available').length,
     out:        equipment.filter(e => e.status === 'Checked Out').length,
-    issues:     equipment.filter(e => ['Maintenance','Lost'].includes(e.status)).length,
+    issues:     equipment.filter(e => ['Damaged','Needs Inspection','Maintenance','Lost'].includes(e.status)).length,
   }), [equipment])
 
   async function handleSave(item) {
