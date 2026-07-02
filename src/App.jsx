@@ -1,20 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Kiosk from './pages/Kiosk'
-
-const Dashboard = () => (
-  <div style={{ padding: 40, fontFamily: 'sans-serif', color: '#333' }}>
-    <h1>♟ CheckMate — Dashboard</h1>
-    <p>Inventory, checkout history, and student management coming in Phase 3.</p>
-    <a href="/">← Back to Kiosk</a>
-  </div>
-)
+import Admin from './pages/Admin'
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/"          element={<Kiosk />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/admin"     element={<Admin />} />
+        <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
         <Route path="*"          element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

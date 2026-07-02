@@ -100,6 +100,22 @@ function formatDate(iso) {
   })
 }
 
+const FORM_STATUS_CONFIG = {
+  form_on_file: { label: 'Form on file',    cls: 'formBadge_ok'      },
+  pending:      { label: 'Form pending',     cls: 'formBadge_pending' },
+  no_form:      { label: 'No form on file',  cls: 'formBadge_none'   },
+  restricted:   { label: 'Restricted',       cls: 'formBadge_restricted' },
+}
+
+function FormStatusBadge({ status }) {
+  const cfg = FORM_STATUS_CONFIG[status] ?? FORM_STATUS_CONFIG.no_form
+  return (
+    <span className={`${styles.formBadge} ${styles[cfg.cls]}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
 export default function Kiosk() {
   // ── Checkout state ────────────────────────────────────────────────────────
   const [mode, setMode]                     = useState('locked')
@@ -114,6 +130,8 @@ export default function Kiosk() {
   const [overrideNeeded, setOverrideNeeded] = useState(false)
   const [overridePin, setOverridePin]       = useState('')
   const [returnPending, setReturnPending]   = useState(null)
+  const [returnCondition, setReturnCondition] = useState('returned_ok')
+  const [returnNotes, setReturnNotes]         = useState('')
 
   // ── Checkout details ──────────────────────────────────────────────────────
   const [duration, setDuration]       = useState('tomorrow')
@@ -278,6 +296,11 @@ export default function Kiosk() {
     }
 
     if (state === 'scan_student') {
+      if (result.type === 'unknown') {
+        setMessage('Card not recognized — not registered in CheckMate')
+        setTimeout(() => setMessage(''), 3000)
+        return
+      }
       if (result.type !== 'student') return
       const s = result.data
       const { data: overdue } = await supabase
@@ -379,6 +402,7 @@ export default function Kiosk() {
             reason: reason || null,
             teacherName: teacherName || null,
             className: className || null,
+            conditionOut: 'good',
           }),
         }
       )
@@ -403,7 +427,14 @@ export default function Kiosk() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
-          body: JSON.stringify({ action: 'return', managerId: manager.id, pin: 'SESSION', equipmentId: returnPending.id }),
+          body: JSON.stringify({
+            action: 'return',
+            managerId: manager.id,
+            pin: 'SESSION',
+            equipmentId: returnPending.id,
+            conditionIn: returnCondition,
+            conditionNotes: returnNotes || null,
+          }),
         }
       )
       const json = await res.json()
@@ -412,8 +443,11 @@ export default function Kiosk() {
     } catch (err) {
       setMessage('Connection error: ' + err.message)
     }
-    setReturnPending(null); setTimeout(() => setMessage(''), 3000)
-  }, [returnPending, manager, loadLiveData])
+    setReturnPending(null)
+    setReturnCondition('returned_ok')
+    setReturnNotes('')
+    setTimeout(() => setMessage(''), 3000)
+  }, [returnPending, returnCondition, returnNotes, manager, loadLiveData])
 
   // ── Remove from cart ──────────────────────────────────────────────────────
   const removeFromCart = useCallback((index) => {
@@ -438,7 +472,10 @@ export default function Kiosk() {
 
       {/* ── HEADER ── */}
       <header className={styles.header}>
-        <span className={styles.logo}>♟ CheckMate</span>
+        <span className={styles.logo}>
+          ♟ RHS CheckMate
+          <span className={styles.logoSub}>Equipment Checkout System</span>
+        </span>
         {manager && <span className={styles.managerBadge}>🔓 {manager.name}</span>}
         {mode === 'return' && <span className={styles.modeBadge}>RETURN MODE</span>}
         <span className={styles.headerSpacer} />
@@ -508,13 +545,33 @@ export default function Kiosk() {
         {state === 'scan_assets' && student && (
           <div className={styles.assetView}>
             <div className={styles.studentBar}>
-              <span className={styles.label}>Student</span>
-              <span className={styles.studentName}>{student.name}</span>
-              {student.class_group && <span className={styles.classTag}>{student.class_group}</span>}
-              {student.overdueCount > 0 && (
-                <span className={styles.overdueTag}>⚠ {student.overdueCount} overdue</span>
-              )}
+              {/* Photo or initials avatar */}
+              {student.photo_available && student.photo_url
+                ? <img src={student.photo_url} alt="" className={styles.studentAvatar} />
+                : <span className={styles.studentAvatarInitials}>
+                    {student.name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()}
+                  </span>
+              }
+              <div className={styles.studentBarInfo}>
+                <div className={styles.studentBarTop}>
+                  <span className={styles.studentName}>{student.name}</span>
+                  {student.class_group && <span className={styles.classTag}>{student.class_group}</span>}
+                  {student.overdueCount > 0 && (
+                    <span className={styles.overdueTag}>⚠ {student.overdueCount} overdue</span>
+                  )}
+                </div>
+                <FormStatusBadge status={student.equipment_form_status} />
+              </div>
             </div>
+
+            {/* Form block warning */}
+            {(student.equipment_form_status === 'no_form' || student.equipment_form_status === 'restricted') && (
+              <div className={styles.formBlockBanner}>
+                {student.equipment_form_status === 'restricted'
+                  ? '🚫 Student is restricted from equipment checkout.'
+                  : '⚠ No equipment form on file. Requires admin override to proceed.'}
+              </div>
+            )}
 
             <div className={styles.cart}>
               {cart.length === 0
@@ -603,7 +660,7 @@ export default function Kiosk() {
               </button>
               <button className={styles.primaryBtn}
                 onClick={confirmCheckout}
-                disabled={!cart.length || overrideNeeded}>
+                disabled={!cart.length || overrideNeeded || student?.equipment_form_status === 'restricted' || student?.equipment_form_status === 'no_form'}>
                 Confirm checkout
               </button>
             </div>
@@ -650,6 +707,23 @@ export default function Kiosk() {
             <p className={styles.label}>Return equipment</p>
             <h1>{returnPending.name}</h1>
             <p className={styles.sub}>{returnPending.category}</p>
+            <div className={styles.conditionWrap}>
+              <span className={styles.fieldLabel}>Condition</span>
+              <select className={styles.selectField} value={returnCondition}
+                onChange={e => setReturnCondition(e.target.value)}>
+                <option value="returned_ok">✓ Returned OK</option>
+                <option value="returned_with_issue">⚠ Returned with issue</option>
+                <option value="missing_accessory">📦 Missing accessory</option>
+                <option value="damaged">💥 Damaged</option>
+                <option value="needs_inspection">🔍 Needs inspection</option>
+              </select>
+              {returnCondition !== 'returned_ok' && (
+                <input className={styles.textField}
+                  placeholder="Notes (optional)"
+                  value={returnNotes}
+                  onChange={e => setReturnNotes(e.target.value)} />
+              )}
+            </div>
             <div className={styles.cartActions}>
               <button className={styles.cancelBtn} onClick={() => setReturnPending(null)}>← Cancel</button>
               <button className={styles.primaryBtn} onClick={confirmReturn}>Confirm return</button>

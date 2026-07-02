@@ -46,6 +46,18 @@
   font-weight: 700;
   letter-spacing: -0.3px;
   color: #7C5CFF;
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+  line-height: 1.1;
+}
+
+.logoSub {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.28);
 }
 
 .headerSpacer { flex: 1; }
@@ -285,8 +297,7 @@
 .studentBar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
   padding: 10px 12px 10px 10px;
   background: rgba(124,92,255,0.14);
   border: 1px solid rgba(124,92,255,0.35);
@@ -294,10 +305,107 @@
   border-radius: 10px;
 }
 
+/* Photo thumbnail */
+.studentAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(124,92,255,0.3);
+  flex-shrink: 0;
+}
+
+/* Initials fallback */
+.studentAvatarInitials {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba(124,92,255,0.25);
+  border: 1px solid rgba(124,92,255,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #c4b5fd;
+  flex-shrink: 0;
+  letter-spacing: -0.5px;
+}
+
+.studentBarInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.studentBarTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .studentName {
   font-size: 14px;
   font-weight: 600;
   color: #f0f0f0;
+}
+
+/* ── Form status badges ──────────────────────────────────────────────────────*/
+.formBadge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+.formBadge_ok {
+  color: #37B37E;
+  background: rgba(55,179,126,0.12);
+  border-color: rgba(55,179,126,0.3);
+}
+.formBadge_pending {
+  color: #D8A31A;
+  background: rgba(216,163,26,0.1);
+  border-color: rgba(216,163,26,0.3);
+}
+.formBadge_none {
+  color: #f87171;
+  background: rgba(248,113,113,0.1);
+  border-color: rgba(248,113,113,0.28);
+}
+.formBadge_restricted {
+  color: #ff5050;
+  background: rgba(255,80,80,0.12);
+  border-color: rgba(255,80,80,0.35);
+}
+
+/* Form block banner */
+.formBlockBanner {
+  font-size: 12px;
+  font-weight: 500;
+  color: #FFB4A8;
+  background: rgba(255,92,92,0.1);
+  border: 1px solid rgba(255,92,92,0.25);
+  border-radius: 8px;
+  padding: 9px 12px;
+  text-align: center;
+}
+
+/* ── Condition selector (return card) ───────────────────────────────────────*/
+.conditionWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  padding: 10px 11px;
+  background: rgba(20,18,40,0.88);
+  border: 1px solid rgba(124,92,255,0.14);
+  border-radius: 8px;
 }
 
 .classTag {
