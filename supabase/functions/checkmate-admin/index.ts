@@ -41,7 +41,8 @@ Deno.serve(async (req) => {
     const { action, managerId, pin } = body
 
     // ── PIN verify for all write actions ──────────────────────────────────
-    const isWrite = !action.endsWith('.list')
+    const READ_ACTIONS = new Set(['equipment.getHistory', 'checkout.listHistory', 'checkout.getOverdueNotes'])
+    const isWrite = !action.endsWith('.list') && !READ_ACTIONS.has(action)
     if (isWrite) {
       const { data: mgr } = await supabase
         .from('cm_managers')
