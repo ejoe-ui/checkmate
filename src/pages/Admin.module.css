@@ -1017,3 +1017,149 @@
   justify-content: flex-end;
   padding-top: 4px;
 }
+
+/* ── Equipment name button (opens detail panel) ──────────────────────────────*/
+.equipNameBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.equipNameBtn:hover strong { text-decoration: underline; }
+
+.conditionNoteInline {
+  font-size: 11px;
+  color: #c2410c;
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* ── Equipment detail panel ──────────────────────────────────────────────────*/
+.detailOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 200;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detailPanel {
+  width: min(600px, 100vw);
+  height: 100%;
+  background: #fff;
+  color: #1a1a2e;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: -4px 0 32px rgba(0,0,0,0.25);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid #E4E1EC;
+  flex-shrink: 0;
+}
+
+.detailName {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.detailMeta {
+  font-size: 12px;
+  color: #888;
+  margin-top: 3px;
+}
+
+.detailClose {
+  background: rgba(0,0,0,0.06);
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.detailClose:hover { background: rgba(0,0,0,0.12); }
+
+.detailBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Condition box ────────────────────────────────────────────────────────────*/
+.conditionBox {
+  background: #FFF8F0;
+  border: 1px solid #FED7AA;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.conditionBoxLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #c2410c;
+  margin-bottom: 6px;
+}
+.conditionBoxText {
+  font-size: 14px;
+  color: #1a1a2e;
+}
+.conditionBoxMeta {
+  font-size: 11px;
+  color: #888;
+  margin-top: 6px;
+}
+.conditionBoxEmpty {
+  font-size: 13px;
+  color: #aaa;
+  font-style: italic;
+}
+
+/* ── Info grid ────────────────────────────────────────────────────────────────*/
+.infoGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+  font-size: 13px;
+  color: #1a1a2e;
+}
+.infoGrid > div { display: flex; flex-direction: column; gap: 3px; }
+.infoLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #888; }
+.fullSpan { grid-column: 1 / -1; }
+
+/* ── Resolve section ──────────────────────────────────────────────────────────*/
+.resolveSection {
+  background: #F8F7FF;
+  border: 1px solid #DDD6FE;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.resolveSectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4B2FCC;
+}
+.resolveRow { display: flex; gap: 10px; }
+
+/* ── Issue row highlight ──────────────────────────────────────────────────────*/
+.issueRow { background: rgba(220,38,38,0.04); }

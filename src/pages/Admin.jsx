@@ -134,10 +134,11 @@ function StatusBadge({ status }) {
 // EQUIPMENT TAB
 // ═══════════════════════════════════════════════════════════════════════════
 function EquipmentTab({ manager, pin }) {
-  const [equipment, setEquipment] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [search, setSearch]       = useState('')
-  const [editItem, setEditItem]   = useState(null) // null = closed, {} = new, item = edit
+  const [equipment, setEquipment]           = useState([])
+  const [loading, setLoading]               = useState(true)
+  const [search, setSearch]                 = useState('')
+  const [editItem, setEditItem]             = useState(null) // null = closed, {} = new, item = edit
+  const [selectedEquipment, setSelectedEq] = useState(null) // detail panel
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -249,8 +250,13 @@ function EquipmentTab({ manager, pin }) {
                       : <span className={styles.equipThumbEmpty}>📷</span>}
                   </td>
                   <td>
-                    <strong>{item.name}</strong>
+                    <button className={styles.equipNameBtn} onClick={() => setSelectedEq(item)}>
+                      <strong>{item.name}</strong>
+                    </button>
                     {item.equipment_notes && <div className={styles.tdMuted}>{item.equipment_notes}</div>}
+                    {item.condition_notes && (
+                      <div className={styles.conditionNoteInline}>⚠ {item.condition_notes}</div>
+                    )}
                   </td>
                   <td className={styles.tdMuted}>{item.category}</td>
                   <td>
@@ -289,6 +295,204 @@ function EquipmentTab({ manager, pin }) {
           onClose={() => setEditItem(null)}
         />
       )}
+
+      {/* Equipment detail panel */}
+      {selectedEquipment && (
+        <EquipmentDetailPanel
+          item={selectedEquipment}
+          manager={manager}
+          pin={pin}
+          onClose={() => setSelectedEq(null)}
+          onResolved={() => { setSelectedEq(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EQUIPMENT DETAIL PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+const CONDITION_IN_LABELS = {
+  returned_ok:        '✓ Good condition',
+  minor_wear:         'Minor wear',
+  needs_cleaning:     'Needs cleaning',
+  damaged:            '🔴 Damaged',
+  missing_parts:      'Missing parts',
+  not_returned:       'Not returned',
+}
+const NEEDS_RESOLVE = new Set(['Damaged', 'Needs Inspection', 'Maintenance'])
+
+function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
+  const [tab, setTab]               = useState('info')   // 'info' | 'history'
+  const [history, setHistory]       = useState([])
+  const [histLoading, setHistLoad]  = useState(false)
+  const [resolveStatus, setRStatus] = useState('Available')
+  const [resolveNote, setRNote]     = useState(item.condition_notes ?? '')
+  const [saving, setSaving]         = useState(false)
+
+  useEffect(() => {
+    if (tab === 'history') loadHistory()
+  }, [tab])
+
+  async function loadHistory() {
+    setHistLoad(true)
+    const { data } = await adminCall('equipment.getHistory', { equipmentId: item.id })
+    if (data) setHistory(data)
+    setHistLoad(false)
+  }
+
+  async function handleResolve() {
+    setSaving(true)
+    const { error } = await adminCall('equipment.resolve', {
+      managerId: manager.id, pin,
+      equipmentId: item.id,
+      status: resolveStatus,
+      conditionNotes: resolveNote || null,
+    })
+    setSaving(false)
+    if (error) { alert('Error: ' + error); return }
+    onResolved()
+  }
+
+  const needsResolve = NEEDS_RESOLVE.has(item.status)
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const fmtTime = d => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
+
+  return (
+    <div className={styles.detailOverlay} onClick={onClose}>
+      <div className={styles.detailPanel} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className={styles.detailHeader}>
+          <div>
+            <div className={styles.detailName}>{item.name}</div>
+            <div className={styles.detailMeta}>{item.category}{item.serial_number ? ` · S/N: ${item.serial_number}` : ''}{item.asset_id ? ` · Asset: ${item.asset_id}` : ''}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <StatusBadge status={item.status} />
+            <button className={styles.detailClose} onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        {/* Sub-tabs */}
+        <div className={styles.subTabRow}>
+          <button className={`${styles.subTab} ${tab === 'info' ? styles.subTabActive : ''}`} onClick={() => setTab('info')}>Info & Condition</button>
+          <button className={`${styles.subTab} ${tab === 'history' ? styles.subTabActive : ''}`} onClick={() => setTab('history')}>Checkout History</button>
+        </div>
+
+        {/* Info tab */}
+        {tab === 'info' && (
+          <div className={styles.detailBody}>
+            {/* Current condition notes */}
+            {item.condition_notes ? (
+              <div className={styles.conditionBox}>
+                <div className={styles.conditionBoxLabel}>Last condition note</div>
+                <div className={styles.conditionBoxText}>{item.condition_notes}</div>
+                {item.condition_updated_at && (
+                  <div className={styles.conditionBoxMeta}>
+                    Updated {fmtDate(item.condition_updated_at)}{item.condition_updated_by ? ` by ${item.condition_updated_by}` : ''}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={styles.conditionBoxEmpty}>No condition notes on file.</div>
+            )}
+
+            {/* Quick info */}
+            <div className={styles.infoGrid}>
+              <div><span className={styles.infoLabel}>Location</span><span>{item.storage_location || '—'}</span></div>
+              <div><span className={styles.infoLabel}>NFC UID</span><span className={styles.tdMono}>{item.nfc_uid || '—'}</span></div>
+              <div><span className={styles.infoLabel}>Replacement cost</span><span>{item.replacement_cost ? `$${Number(item.replacement_cost).toFixed(0)}` : '—'}</span></div>
+              {item.equipment_notes && <div className={styles.fullSpan}><span className={styles.infoLabel}>Notes</span><span>{item.equipment_notes}</span></div>}
+            </div>
+
+            {/* Resolve section */}
+            {needsResolve && (
+              <div className={styles.resolveSection}>
+                <div className={styles.resolveSectionTitle}>⚙ Resolve condition</div>
+                <div className={styles.resolveRow}>
+                  <div className={styles.formField} style={{ flex: 1 }}>
+                    <label className={styles.formLabel}>Set status to</label>
+                    <select className={styles.formSelect} value={resolveStatus} onChange={e => setRStatus(e.target.value)}>
+                      <option value="Available">✓ Available — clear to check out</option>
+                      <option value="Maintenance">Maintenance — hold, needs repair</option>
+                      <option value="Damaged">Damaged — document only</option>
+                      <option value="Retired">Retired — remove from circulation</option>
+                    </select>
+                  </div>
+                </div>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>Resolution note</label>
+                  <textarea className={styles.formTextarea} rows={2}
+                    value={resolveNote} onChange={e => setRNote(e.target.value)}
+                    placeholder="e.g. Lens replaced, camera tested and working" />
+                </div>
+                <button className={styles.primaryBtn} disabled={saving} onClick={handleResolve}>
+                  {saving ? 'Saving…' : 'Save resolution'}
+                </button>
+              </div>
+            )}
+
+            {/* If not in issue state, still allow adding a note */}
+            {!needsResolve && (
+              <div className={styles.resolveSection} style={{ background: 'none', border: 'none', paddingTop: 0 }}>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>Update condition note</label>
+                  <textarea className={styles.formTextarea} rows={2}
+                    value={resolveNote} onChange={e => setRNote(e.target.value)}
+                    placeholder="Optional note about current condition" />
+                </div>
+                <button className={styles.secondaryBtn} disabled={saving} onClick={handleResolve}>
+                  {saving ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* History tab */}
+        {tab === 'history' && (
+          <div className={styles.detailBody}>
+            {histLoading ? (
+              <div className={styles.emptyState}><p className={styles.emptyTitle}>Loading…</p></div>
+            ) : history.length === 0 ? (
+              <div className={styles.emptyState}><p className={styles.emptyTitle}>No checkout history yet.</p></div>
+            ) : (
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Checked out</th>
+                    <th>Returned</th>
+                    <th>Condition out</th>
+                    <th>Condition in</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(h => {
+                    const hasIssue = h.condition_in && h.condition_in !== 'returned_ok'
+                    return (
+                      <tr key={h.id} className={hasIssue ? styles.issueRow : ''}>
+                        <td><strong>{h.cm_students?.name ?? '—'}</strong></td>
+                        <td className={styles.tdMuted}>{fmtTime(h.checked_out_at)}</td>
+                        <td className={styles.tdMuted}>{h.checked_in_at ? fmtTime(h.checked_in_at) : <span className={styles.issueTag}>Still out</span>}</td>
+                        <td className={styles.tdMuted}>{h.condition_out === 'good' ? '✓ Good' : h.condition_out ?? '—'}</td>
+                        <td>{h.condition_in ? (
+                          <span className={hasIssue ? styles.issueTag : ''}>
+                            {CONDITION_IN_LABELS[h.condition_in] ?? h.condition_in}
+                          </span>
+                        ) : '—'}</td>
+                        <td className={styles.tdMuted}>{h.condition_notes || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -84,6 +84,52 @@ Deno.serve(async (req) => {
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
     }
 
+    // ── equipment.resolve ─────────────────────────────────────────────────
+    // Resolves a damage/inspection flag: updates status + records condition note + resolver.
+    if (action === 'equipment.resolve') {
+      const { equipmentId, status, conditionNotes, resolvedBy } = body
+      if (!equipmentId) return json({ error: 'equipmentId is required' }, corsHeaders)
+
+      const { data: mgr } = await supabase
+        .from('cm_managers').select('name').eq('id', managerId).single()
+      const resolverName = resolvedBy || mgr?.name || 'Manager'
+
+      const { error } = await supabase
+        .from('cm_equipment')
+        .update({
+          status,
+          condition_notes:      conditionNotes ?? null,
+          condition_updated_at: new Date().toISOString(),
+          condition_updated_by: resolverName,
+        })
+        .eq('id', equipmentId)
+      return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+    }
+
+    // ── equipment.getHistory ──────────────────────────────────────────────
+    // Returns all checkout records for one piece of equipment, newest first.
+    // Includes condition_in, condition_notes, student name, dates.
+    if (action === 'equipment.getHistory') {
+      const { equipmentId } = body
+      if (!equipmentId) return json({ error: 'equipmentId is required' }, corsHeaders)
+
+      const { data, error } = await supabase
+        .from('cm_checkouts')
+        .select(`
+          id, checked_out_at, checked_in_at, due_at,
+          condition_out, condition_out_notes,
+          condition_in, condition_notes,
+          reason, teacher_name, approved_by,
+          cm_students!student_id(id, name),
+          cm_managers!manager_id(name)
+        `)
+        .eq('equipment_id', equipmentId)
+        .order('checked_out_at', { ascending: false })
+        .limit(50)
+
+      return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
+    }
+
     // ── equipment.delete (retire) ─────────────────────────────────────────
     if (action === 'equipment.delete') {
       const { equipmentId } = body

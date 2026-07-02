@@ -363,6 +363,16 @@ export default function Kiosk() {
     if (state === 'scan_assets') {
       if (result.type === 'equipment') {
         const item = result.data
+
+        // Block checkout if equipment is not in a checkable state
+        const NOT_AVAILABLE = ['Damaged', 'Needs Inspection', 'Maintenance', 'Retired', 'Lost']
+        if (NOT_AVAILABLE.includes(item.status)) {
+          setCart(prev => [...prev, { ...item, blocked: true, blockReason: `Status: ${item.status}` }])
+          setOverrideNeeded(true)
+          setTimeout(() => overridePinRef.current?.focus(), 50)
+          return
+        }
+
         if (item.is_container) {
           const { data: contents } = await supabase
             .from('cm_kit_contents')
@@ -374,7 +384,7 @@ export default function Kiosk() {
         if (item.allowed_groups !== 'Any' && student?.class_group &&
             item.allowed_groups !== student.class_group) {
           setOverrideNeeded(true)
-          setCart(prev => [...prev, { ...item, blocked: true }])
+          setCart(prev => [...prev, { ...item, blocked: true, blockReason: 'Group restriction' }])
           setTimeout(() => overridePinRef.current?.focus(), 50)
           return
         }
@@ -675,7 +685,11 @@ export default function Kiosk() {
                   <div key={i} className={styles.cartItem} data-blocked={item.blocked || undefined}>
                     <span className={styles.cartCategory}>{item.category}</span>
                     <span className={styles.cartName}>{item.name}</span>
-                    {item.blocked && <span className={styles.blockedTag}>BLOCKED</span>}
+                    {item.blocked && (
+                      <span className={styles.blockedTag}>
+                        {item.blockReason || 'BLOCKED'}
+                      </span>
+                    )}
                     <button className={styles.removeBtn} onClick={() => removeFromCart(i)} aria-label="Remove">✕</button>
                   </div>
                 ))
