@@ -357,6 +357,34 @@ Deno.serve(async (req) => {
       return json({ ok: true, synced }, corsHeaders)
     }
 
+    // ── checkout.listHistory ─────────────────────────────────────────────
+    // Returns returned checkouts (checked_in_at IS NOT NULL), newest first.
+    // Optional filter: issuesOnly=true returns only non-OK condition_in.
+    if (action === 'checkout.listHistory') {
+      const { issuesOnly, limit: lim, offset: off } = body
+      let query = supabase
+        .from('cm_checkouts')
+        .select(`
+          id, checked_out_at, checked_in_at, due_at,
+          condition_out, condition_out_notes,
+          condition_in, condition_notes,
+          reason, teacher_name, class_name, approved_by,
+          cm_students!student_id(id, name, class_group, photo_file),
+          cm_equipment!equipment_id(id, name, category, serial_number, asset_id),
+          cm_managers!manager_id(name)
+        `)
+        .not('checked_in_at', 'is', null)
+        .order('checked_in_at', { ascending: false })
+        .limit(lim ?? 100)
+
+      if (off) query = query.range(off, (off + (lim ?? 100)) - 1)
+      if (issuesOnly) query = query.neq('condition_in', 'returned_ok')
+
+      const { data, error } = await query
+      if (error) return json({ error: error.message }, corsHeaders)
+      return json({ data }, corsHeaders)
+    }
+
     // ── checkout.getOverdueNotes ──────────────────────────────────────────
     // Returns all overdue notes for a checkout, ordered oldest-first.
     if (action === 'checkout.getOverdueNotes') {

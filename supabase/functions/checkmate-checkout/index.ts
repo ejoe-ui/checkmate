@@ -88,9 +88,16 @@ Deno.serve(async (req) => {
 
       if (returnErr) return json({ error: returnErr.message }, corsHeaders)
 
+      // Set equipment status based on return condition
+      const returnedStatus = (conditionIn === 'damaged')
+        ? 'Damaged'
+        : (conditionIn && conditionIn !== 'returned_ok')
+          ? 'Needs Inspection'
+          : 'Available'
+
       const { error: eqErr } = await supabase
         .from('cm_equipment')
-        .update({ status: 'Available' })
+        .update({ status: returnedStatus })
         .eq('id', equipmentId)
 
       if (eqErr) return json({ error: eqErr.message }, corsHeaders)

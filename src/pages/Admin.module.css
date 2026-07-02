@@ -964,6 +964,50 @@
   padding: 8px 10px;
 }
 
+/* ── Checkout sub-tabs ───────────────────────────────────────────────────────*/
+.subTabRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.subTab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid #D4D0E4;
+  background: #F4F3F8;
+  color: #4A4E62;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.subTab:hover { background: #EEE9FF; border-color: #A594F9; }
+.subTabActive {
+  background: #7C5CFF;
+  border-color: #7C5CFF;
+  color: #fff;
+}
+.subTabActive:hover { background: #6B4EE8; }
+
+/* ── Issue badges ────────────────────────────────────────────────────────────*/
+.issueTag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #991B1B;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.issueInline {
+  color: #dc2626;
+  font-weight: 600;
+}
+
 /* ── Modal actions ───────────────────────────────────────────────────────────*/
 .modalActions {
   display: flex;

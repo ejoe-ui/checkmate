@@ -44,6 +44,16 @@ const CONDITION_OUT_LABELS = {
   needs_inspection: '🔍 Needs inspection',
 }
 
+const CONDITION_IN_LABELS = {
+  returned_ok:          '✓ Returned OK',
+  returned_with_issue:  '⚠ Returned with issue',
+  missing_accessory:    '📦 Missing accessory',
+  damaged:              '💥 Damaged',
+  needs_inspection:     '🔍 Needs inspection',
+}
+
+const CONDITION_IN_ISSUE = new Set(['returned_with_issue', 'missing_accessory', 'damaged', 'needs_inspection'])
+
 function formatDate(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-US', {
@@ -410,8 +420,11 @@ function formatNoteTime(iso) {
 }
 
 function CheckoutsTab({ manager, pin }) {
+  const [subTab, setSubTab]                 = useState('active') // 'active' | 'history' | 'issues'
   const [checkouts, setCheckouts]           = useState([])
+  const [history, setHistory]               = useState([])
   const [loading, setLoading]               = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [search, setSearch]                 = useState('')
   const [selectedCheckout, setSelectedCheckout] = useState(null)
   const [overdueNotes, setOverdueNotes]     = useState([])
@@ -464,28 +477,52 @@ function CheckoutsTab({ manager, pin }) {
 
   useEffect(() => { load() }, [load])
 
-  // Auto-refresh every 30 s
+  // Auto-refresh active tab every 30 s
   useEffect(() => {
-    const id = setInterval(load, 30000)
+    const id = setInterval(() => { if (subTab === 'active') load() }, 30000)
     return () => clearInterval(id)
-  }, [load])
+  }, [load, subTab])
+
+  const loadHistory = useCallback(async (issuesOnly = false) => {
+    setHistoryLoading(true)
+    const { data } = await adminCall('checkout.listHistory', {
+      managerId: manager.id, pin, issuesOnly, limit: 200,
+    })
+    setHistory(data || [])
+    setHistoryLoading(false)
+  }, [manager, pin])
+
+  // Load history when switching to those tabs
+  useEffect(() => {
+    if (subTab === 'history') loadHistory(false)
+    if (subTab === 'issues')  loadHistory(true)
+  }, [subTab, loadHistory])
 
   const now = new Date()
 
   const filtered = useMemo(() => {
-    if (!search) return checkouts
+    const source = subTab === 'active' ? checkouts : history
+    if (!search) return source
     const q = search.toLowerCase()
-    return checkouts.filter(c =>
-      c.student_name?.toLowerCase().includes(q) ||
-      c.equipment_name?.toLowerCase().includes(q) ||
-      c.manager_name?.toLowerCase().includes(q)
-    )
-  }, [checkouts, search])
+    return source.filter(c => {
+      // history rows use nested objects; active rows use flat columns
+      const sName = c.student_name ?? c.cm_students?.name ?? ''
+      const eName = c.equipment_name ?? c.cm_equipment?.name ?? ''
+      const mName = c.manager_name ?? c.cm_managers?.name ?? ''
+      return sName.toLowerCase().includes(q) ||
+             eName.toLowerCase().includes(q) ||
+             mName.toLowerCase().includes(q)
+    })
+  }, [checkouts, history, search, subTab])
 
-  const stats = useMemo(() => ({
-    total:   checkouts.length,
-    overdue: checkouts.filter(c => c.due_at && new Date(c.due_at) < now).length,
-  }), [checkouts])
+  const stats = useMemo(() => {
+    const now2 = new Date()
+    return {
+      total:   checkouts.length,
+      overdue: checkouts.filter(c => c.due_at && new Date(c.due_at) < now2).length,
+      issues:  history.filter(c => CONDITION_IN_ISSUE.has(c.condition_in)).length,
+    }
+  }, [checkouts, history])
 
   async function loadNotes(checkoutId) {
     setNotesLoading(true)
@@ -543,6 +580,7 @@ function CheckoutsTab({ manager, pin }) {
 
   return (
     <div className={styles.content}>
+      {/* Stats */}
       <div className={styles.statsRow}>
         <div className={styles.statCard}>
           <div className={styles.statNum} style={{ color: '#8A5600' }}>{stats.total}</div>
@@ -554,15 +592,42 @@ function CheckoutsTab({ manager, pin }) {
           </div>
           <div className={styles.statLabel}>Overdue</div>
         </div>
+        <div className={styles.statCard}>
+          <div className={styles.statNum} style={{ color: stats.issues > 0 ? '#dc2626' : '#A8ABB8' }}>
+            {stats.issues}
+          </div>
+          <div className={styles.statLabel}>Returned w/ issue</div>
+        </div>
       </div>
 
+      {/* Sub-tabs */}
+      <div className={styles.subTabRow}>
+        {[
+          { key: 'active',  label: 'Active' },
+          { key: 'history', label: 'History' },
+          { key: 'issues',  label: '⚠ Issues' },
+        ].map(t => (
+          <button key={t.key}
+            className={`${styles.subTab} ${subTab === t.key ? styles.subTabActive : ''}`}
+            onClick={() => { setSubTab(t.key); setSearch('') }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Toolbar */}
       <div className={styles.toolbar}>
-        <input className={styles.searchInput} placeholder="Search student or equipment…"
+        <input className={styles.searchInput}
+          placeholder={`Search ${subTab === 'active' ? 'active' : 'returned'} checkouts…`}
           value={search} onChange={e => setSearch(e.target.value)} />
-        <button className={styles.secondaryBtn} onClick={load}>↻ Refresh</button>
+        <button className={styles.secondaryBtn}
+          onClick={() => subTab === 'active' ? load() : loadHistory(subTab === 'issues')}>
+          ↻ Refresh
+        </button>
       </div>
 
-      {loading ? (
+      {/* Active checkouts table */}
+      {subTab === 'active' && (loading ? (
         <div className={styles.emptyState}><span className={styles.emptyIcon}>⏳</span><p className={styles.emptyTitle}>Loading…</p></div>
       ) : filtered.length === 0 ? (
         <div className={styles.emptyState}>
@@ -588,8 +653,7 @@ function CheckoutsTab({ manager, pin }) {
               {filtered.map(c => {
                 const due = formatDue(c.due_at)
                 return (
-                  <tr key={c.id} className={styles.clickableRow}
-                    onClick={() => openDetail(c)}>
+                  <tr key={c.id} className={styles.clickableRow} onClick={() => openDetail(c)}>
                     <td>
                       <div className={styles.studentCell}>
                         <Avatar name={c.student_name} photoUrl={c.student_photo_url} photoAvailable={c.student_photo_available} />
@@ -618,74 +682,174 @@ function CheckoutsTab({ manager, pin }) {
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
-      {/* ── Overdue detail / note panel ─────────────────────────────────── */}
+      {/* History / Issues table */}
+      {(subTab === 'history' || subTab === 'issues') && (historyLoading ? (
+        <div className={styles.emptyState}><span className={styles.emptyIcon}>⏳</span><p className={styles.emptyTitle}>Loading…</p></div>
+      ) : filtered.length === 0 ? (
+        <div className={styles.emptyState}>
+          <span className={styles.emptyIcon}>{subTab === 'issues' ? '✓' : '📋'}</span>
+          <p className={styles.emptyTitle}>{search ? 'No matches' : subTab === 'issues' ? 'No issues on record' : 'No history yet'}</p>
+        </div>
+      ) : (
+        <div className={styles.tableCard}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Equipment</th>
+                <th>Checked out</th>
+                <th>Returned</th>
+                <th>Condition in</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(c => {
+                const sName = c.student_name ?? c.cm_students?.name ?? '—'
+                const sClass = c.class_group ?? c.cm_students?.class_group ?? ''
+                const eName = c.equipment_name ?? c.cm_equipment?.name ?? '—'
+                const eCat  = c.equipment_category ?? c.cm_equipment?.category ?? ''
+                const hasIssue = CONDITION_IN_ISSUE.has(c.condition_in)
+                return (
+                  <tr key={c.id} className={styles.clickableRow}
+                    onClick={() => setSelectedCheckout({ ...c, _isHistory: true })}>
+                    <td>
+                      <div className={styles.studentCell}>
+                        <Avatar name={sName} />
+                        <div>
+                          <div><strong>{sName}</strong></div>
+                          {sClass && <div className={styles.tdMuted}>{sClass}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <strong>{eName}</strong>
+                      <div className={styles.tdMuted}>{eCat}</div>
+                    </td>
+                    <td className={styles.tdMuted}>{formatDate(c.checked_out_at)}</td>
+                    <td className={styles.tdMuted}>{formatDate(c.checked_in_at)}</td>
+                    <td>
+                      {hasIssue
+                        ? <span className={styles.issueTag}>{CONDITION_IN_LABELS[c.condition_in] ?? c.condition_in}</span>
+                        : <span className={styles.tdMuted}>{CONDITION_IN_LABELS[c.condition_in] ?? '—'}</span>}
+                    </td>
+                    <td className={styles.tdMuted}>{c.condition_notes || '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {/* ── Detail panel (active overdue / history) ────────────────────── */}
       {selectedCheckout && (
         <div className={styles.modalOverlay} onClick={() => setSelectedCheckout(null)}>
           <div className={styles.overduePanel} onClick={e => e.stopPropagation()}>
             <button className={styles.modalClose} onClick={() => setSelectedCheckout(null)}>✕</button>
 
             {/* Header */}
-            <div className={styles.overduePanelHeader}>
-              <div className={styles.overduePanelIdentity}>
-                <Avatar
-                  name={selectedCheckout.student_name}
-                  photoUrl={selectedCheckout.student_photo_url}
-                  photoAvailable={selectedCheckout.student_photo_available}
-                  size="lg"
-                />
-                <div>
-                  <p className={styles.overduePanelLabel}>Checkout detail</p>
-                  <h3 className={styles.overduePanelName}>{selectedCheckout.student_name}</h3>
-                  <p className={styles.overduePanelSub}>{selectedCheckout.equipment_name} · {selectedCheckout.equipment_category}</p>
-                </div>
-              </div>
-              {(() => {
-                const due = formatDue(selectedCheckout.due_at)
-                return due.overdue
-                  ? <span className={styles.overduePanelBadge}>OVERDUE · {due.label}</span>
-                  : <span className={styles.onTimePanelBadge}>{due.label}</span>
-              })()}
-            </div>
+            {(() => {
+              const isHistory = selectedCheckout._isHistory
+              const sName = selectedCheckout.student_name ?? selectedCheckout.cm_students?.name ?? '—'
+              const eName = selectedCheckout.equipment_name ?? selectedCheckout.cm_equipment?.name ?? '—'
+              const eCat  = selectedCheckout.equipment_category ?? selectedCheckout.cm_equipment?.category ?? ''
+              const hasIssue = CONDITION_IN_ISSUE.has(selectedCheckout.condition_in)
+              return (
+                <>
+                  <div className={styles.overduePanelHeader}>
+                    <div className={styles.overduePanelIdentity}>
+                      <Avatar
+                        name={sName}
+                        photoUrl={selectedCheckout.student_photo_url}
+                        photoAvailable={selectedCheckout.student_photo_available}
+                        size="lg"
+                      />
+                      <div>
+                        <p className={styles.overduePanelLabel}>
+                          {isHistory ? 'Return record' : 'Checkout detail'}
+                        </p>
+                        <h3 className={styles.overduePanelName}>{sName}</h3>
+                        <p className={styles.overduePanelSub}>{eName} · {eCat}</p>
+                      </div>
+                    </div>
+                    {isHistory
+                      ? hasIssue
+                        ? <span className={styles.overduePanelBadge}>{CONDITION_IN_LABELS[selectedCheckout.condition_in]}</span>
+                        : <span className={styles.onTimePanelBadge}>✓ Returned OK</span>
+                      : (() => {
+                          const due = formatDue(selectedCheckout.due_at)
+                          return due.overdue
+                            ? <span className={styles.overduePanelBadge}>OVERDUE · {due.label}</span>
+                            : <span className={styles.onTimePanelBadge}>{due.label}</span>
+                        })()
+                    }
+                  </div>
 
-            {/* Meta row */}
-            <div className={styles.overdueMeta}>
-              <div className={styles.overdueMetaItem}>
-                <span className={styles.overdueMetaLabel}>Checked out</span>
-                <span>{formatDate(selectedCheckout.checked_out_at)}</span>
-              </div>
-              <div className={styles.overdueMetaItem}>
-                <span className={styles.overdueMetaLabel}>Due</span>
-                <span>{formatDate(selectedCheckout.due_at)}</span>
-              </div>
-              {selectedCheckout.teacher_name && (
-                <div className={styles.overdueMetaItem}>
-                  <span className={styles.overdueMetaLabel}>Teacher responsible</span>
-                  <span>{selectedCheckout.teacher_name}</span>
-                </div>
-              )}
-              {selectedCheckout.approved_by && (
-                <div className={styles.overdueMetaItem}>
-                  <span className={styles.overdueMetaLabel}>Approved by</span>
-                  <span>{selectedCheckout.approved_by}</span>
-                </div>
-              )}
-              {selectedCheckout.reason && (
-                <div className={styles.overdueMetaItem}>
-                  <span className={styles.overdueMetaLabel}>Reason</span>
-                  <span>{selectedCheckout.reason}</span>
-                </div>
-              )}
-              {selectedCheckout.condition_out && selectedCheckout.condition_out !== 'good' && (
-                <div className={styles.overdueMetaItem}>
-                  <span className={styles.overdueMetaLabel}>Condition at checkout</span>
-                  <span>{CONDITION_OUT_LABELS[selectedCheckout.condition_out] ?? selectedCheckout.condition_out}</span>
-                </div>
-              )}
-            </div>
+                  {/* Meta */}
+                  <div className={styles.overdueMeta}>
+                    <div className={styles.overdueMetaItem}>
+                      <span className={styles.overdueMetaLabel}>Checked out</span>
+                      <span>{formatDate(selectedCheckout.checked_out_at)}</span>
+                    </div>
+                    {isHistory ? (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Returned</span>
+                        <span>{formatDate(selectedCheckout.checked_in_at)}</span>
+                      </div>
+                    ) : (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Due</span>
+                        <span>{formatDate(selectedCheckout.due_at)}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.teacher_name && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Teacher responsible</span>
+                        <span>{selectedCheckout.teacher_name}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.approved_by && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Approved by</span>
+                        <span>{selectedCheckout.approved_by}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.reason && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Reason</span>
+                        <span>{selectedCheckout.reason}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.condition_out && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Condition at checkout</span>
+                        <span>{CONDITION_OUT_LABELS[selectedCheckout.condition_out] ?? selectedCheckout.condition_out}</span>
+                      </div>
+                    )}
+                    {isHistory && selectedCheckout.condition_in && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Condition returned</span>
+                        <span className={hasIssue ? styles.issueInline : undefined}>
+                          {CONDITION_IN_LABELS[selectedCheckout.condition_in] ?? selectedCheckout.condition_in}
+                        </span>
+                      </div>
+                    )}
+                    {isHistory && selectedCheckout.condition_notes && (
+                      <div className={styles.overdueMetaItem}>
+                        <span className={styles.overdueMetaLabel}>Return notes</span>
+                        <span>{selectedCheckout.condition_notes}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
 
-            {/* Quick actions */}
+            {/* Quick actions — active checkouts only */}
+            {!selectedCheckout._isHistory && (
             <div className={styles.overdueQuickActions}>
               <button className={styles.quickActionBtn} onClick={quickContacted} disabled={saving}>
                 ✓ Contacted
@@ -701,9 +865,10 @@ function CheckoutsTab({ manager, pin }) {
                 📝 Add note
               </button>
             </div>
+            )}
 
-            {/* Note form */}
-            {showNoteForm && (
+            {/* Note form — active checkouts only */}
+            {!selectedCheckout._isHistory && showNoteForm && (
               <div className={styles.noteForm}>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                   <select className={styles.inlineSelect} value={noteType} onChange={e => setNoteType(e.target.value)}>
@@ -743,8 +908,8 @@ function CheckoutsTab({ manager, pin }) {
               </div>
             )}
 
-            {/* Note timeline */}
-            <div className={styles.noteTimeline}>
+            {/* Note timeline — active checkouts only */}
+            {!selectedCheckout._isHistory && <div className={styles.noteTimeline}>
               <p className={styles.overdueMetaLabel} style={{ marginBottom: 10 }}>
                 Note history {overdueNotes.length > 0 ? `(${overdueNotes.length})` : ''}
               </p>
@@ -774,7 +939,7 @@ function CheckoutsTab({ manager, pin }) {
                   </div>
                 ))
               )}
-            </div>
+            </div>}
           </div>
         </div>
       )}
