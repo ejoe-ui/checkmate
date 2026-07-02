@@ -383,6 +383,11 @@
   background: rgba(255,80,80,0.12);
   border-color: rgba(255,80,80,0.35);
 }
+.formBadge_temp {
+  color: #D8A31A;
+  background: rgba(216,163,26,0.12);
+  border-color: rgba(216,163,26,0.35);
+}
 
 /* Form block banner */
 .formBlockBanner {

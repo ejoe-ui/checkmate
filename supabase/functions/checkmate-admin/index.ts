@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     if (action === 'student.list') {
       const { data, error } = await supabase
         .from('cm_students')
-        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at')
+        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at, temp_access_expires_at')
         .order('name')
       if (error) return json({ error: error.message }, corsHeaders)
 
@@ -125,13 +125,123 @@ Deno.serve(async (req) => {
     // ── student.setFormStatus ─────────────────────────────────────────────
     if (action === 'student.setFormStatus') {
       const { studentId, formStatus } = body
-      const valid = ['form_on_file', 'no_form', 'pending', 'restricted']
+      const valid = ['form_on_file', 'no_form', 'pending', 'restricted', 'temp_pass']
       if (!valid.includes(formStatus)) return json({ error: 'Invalid form status' }, corsHeaders)
       const { error } = await supabase
         .from('cm_students')
         .update({ equipment_form_status: formStatus })
         .eq('id', studentId)
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+    }
+
+    // ── student.addStudent ────────────────────────────────────────────────
+    // Manually adds a student not in PassAble (e.g. from another class).
+    if (action === 'student.addStudent') {
+      const { name, email, classGroup, nfcUid, formStatus, grantTempPass } = body
+      if (!name?.trim()) return json({ error: 'Name is required' }, corsHeaders)
+
+      const validStatuses = ['form_on_file', 'no_form', 'pending', 'restricted', 'temp_pass']
+      const status = validStatuses.includes(formStatus) ? formStatus : 'no_form'
+
+      // Temp pass: expires end of the next calendar day
+      let tempExpires: string | null = null
+      if (grantTempPass || status === 'temp_pass') {
+        const exp = new Date()
+        exp.setDate(exp.getDate() + 1)
+        exp.setHours(23, 59, 0, 0)
+        tempExpires = exp.toISOString()
+      }
+
+      const { data, error } = await supabase
+        .from('cm_students')
+        .insert({
+          name:                    name.trim(),
+          email:                   email?.trim()    || null,
+          class_group:             classGroup?.trim() || null,
+          nfc_uid:                 nfcUid?.trim()   || null,
+          equipment_form_status:   grantTempPass ? 'temp_pass' : status,
+          temp_access_expires_at:  tempExpires,
+          last_synced_at:          new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
+    }
+
+    // ── student.grantTempPass ─────────────────────────────────────────────
+    // Grants a 1-day checkout pass to an existing student.
+    if (action === 'student.grantTempPass') {
+      const { studentId } = body
+      if (!studentId) return json({ error: 'studentId is required' }, corsHeaders)
+
+      const exp = new Date()
+      exp.setDate(exp.getDate() + 1)
+      exp.setHours(23, 59, 0, 0)
+
+      const { error } = await supabase
+        .from('cm_students')
+        .update({
+          equipment_form_status:  'temp_pass',
+          temp_access_expires_at: exp.toISOString(),
+        })
+        .eq('id', studentId)
+
+      return error
+        ? json({ error: error.message }, corsHeaders)
+        : json({ ok: true, expiresAt: exp.toISOString() }, corsHeaders)
+    }
+
+    // ── student.syncFromPassAble ──────────────────────────────────────────
+    // Upserts all PassAble students into cm_students by nfc_uid.
+    // Preserves existing equipment_form_status and temp_access_expires_at.
+    // New students default to no_form.
+    if (action === 'student.syncFromPassAble') {
+      const { data: passable } = await supabase
+        .from('students')
+        .select('nfc_uid, name, email, class_group, phone, photo_file, photo_url')
+        .not('nfc_uid', 'is', null)
+
+      const { data: existing } = await supabase
+        .from('cm_students')
+        .select('id, nfc_uid, equipment_form_status, temp_access_expires_at')
+
+      if (!passable) return json({ error: 'Could not load PassAble students' }, corsHeaders)
+
+      const existingMap = new Map((existing || []).map(s => [s.nfc_uid, s]))
+
+      let added = 0, updated = 0
+
+      for (const p of passable) {
+        if (!p.nfc_uid || !p.name) continue
+        const ex = existingMap.get(p.nfc_uid)
+
+        if (ex) {
+          // Update info but preserve form status and temp pass
+          await supabase.from('cm_students').update({
+            name:           p.name,
+            email:          p.email          || null,
+            class_group:    p.class_group    || null,
+            photo_file:     p.photo_file     || null,
+            last_synced_at: new Date().toISOString(),
+          }).eq('id', ex.id)
+          updated++
+        } else {
+          // New student — insert with no_form default
+          await supabase.from('cm_students').insert({
+            nfc_uid:               p.nfc_uid,
+            name:                  p.name,
+            email:                 p.email       || null,
+            class_group:           p.class_group || null,
+            photo_file:            p.photo_file  || null,
+            equipment_form_status: 'no_form',
+            last_synced_at:        new Date().toISOString(),
+          })
+          added++
+        }
+      }
+
+      return json({ ok: true, added, updated }, corsHeaders)
     }
 
     // ── student.syncPhoto ─────────────────────────────────────────────────

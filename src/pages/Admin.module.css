@@ -789,3 +789,185 @@
   color: #7A7D8C;
   margin-top: 4px;
 }
+
+/* ── Temp pass tags ─────────────────────────────────────────────────────────*/
+.tempActiveTag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #92400E;
+  background: #FEF3C7;
+  border: 1px solid #FCD34D;
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.tempExpiredTag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #991B1B;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.grantPassBtn {
+  font-size: 10px;
+  font-weight: 600;
+  color: #92400E;
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+  align-self: flex-start;
+}
+.grantPassBtn:hover { background: #FEF3C7; }
+
+/* ── Add Student Modal ───────────────────────────────────────────────────────*/
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 11, 26, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.modal {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 14px;
+  padding: 28px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.modalClose {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #F0EEFF;
+  color: #4A2ECC;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.modalClose:hover { background: #DDD8FF; }
+
+.modalTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1D2030;
+  margin: 0;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.formLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4A4E62;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.formInput,
+.formSelect {
+  padding: 9px 11px;
+  border: 1px solid #D4D0E4;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #1D2030;
+  background: #F8F7FC;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.12s;
+}
+.formInput:focus,
+.formSelect:focus { border-color: #7C5CFF; background: #FDFCFF; }
+
+/* ── Temp pass toggle ───────────────────────────────────────────────────────*/
+.tempPassToggle {
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tempPassLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400E;
+  cursor: pointer;
+}
+.tempPassLabel input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #D97706;
+  cursor: pointer;
+}
+
+.tempPassHint {
+  font-size: 11px;
+  color: #B45309;
+  line-height: 1.4;
+}
+
+.tempPassInfo {
+  font-size: 11px;
+  color: #78350F;
+  line-height: 1.5;
+  background: #FEF3C7;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* ── Modal actions ───────────────────────────────────────────────────────────*/
+.modalActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}

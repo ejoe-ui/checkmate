@@ -105,13 +105,36 @@ const FORM_STATUS_CONFIG = {
   pending:      { label: 'Form pending',     cls: 'formBadge_pending' },
   no_form:      { label: 'No form on file',  cls: 'formBadge_none'   },
   restricted:   { label: 'Restricted',       cls: 'formBadge_restricted' },
+  temp_pass:    { label: 'Temp pass',        cls: 'formBadge_temp'   },
 }
 
-function FormStatusBadge({ status }) {
+/**
+ * Resolves the effective form status for a student at checkout time.
+ * A `temp_pass` student is allowed if the pass hasn't expired;
+ * if it has expired, treat them as `no_form` (blocked, override available).
+ */
+function effectiveFormStatus(student) {
+  if (!student) return 'no_form'
+  if (student.equipment_form_status === 'temp_pass') {
+    const exp = student.temp_access_expires_at ? new Date(student.temp_access_expires_at) : null
+    if (!exp || exp < new Date()) return 'no_form' // expired → blocked
+    return 'temp_pass'                              // active → allowed
+  }
+  return student.equipment_form_status ?? 'no_form'
+}
+
+function FormStatusBadge({ student }) {
+  const status = effectiveFormStatus(student)
   const cfg = FORM_STATUS_CONFIG[status] ?? FORM_STATUS_CONFIG.no_form
   return (
     <span className={`${styles.formBadge} ${styles[cfg.cls]}`}>
       {cfg.label}
+      {status === 'temp_pass' && student.temp_access_expires_at && (() => {
+        const exp = new Date(student.temp_access_expires_at)
+        const diffH = Math.round((exp - new Date()) / 3600000)
+        if (diffH < 24) return ` · expires in ${diffH}h`
+        return ` · exp ${exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+      })()}
     </span>
   )
 }
@@ -422,8 +445,9 @@ export default function Kiosk() {
   // ── Confirm checkout ──────────────────────────────────────────────────────
   const confirmCheckout = useCallback(async () => {
     if (!cart.length || !student || overrideNeeded) return
-    if (student.equipment_form_status === 'restricted') return
-    if (student.equipment_form_status === 'no_form' && !noFormOverride) return
+    const efs = effectiveFormStatus(student)
+    if (efs === 'restricted') return
+    if (efs === 'no_form' && !noFormOverride) return
     const equipmentIds = cart.map(i => i.id)
     const dueAt = computeDueDate(duration, customDue).toISOString()
     try {
@@ -600,29 +624,49 @@ export default function Kiosk() {
                     <span className={styles.overdueTag}>⚠ {student.overdueCount} overdue</span>
                   )}
                 </div>
-                <FormStatusBadge status={student.equipment_form_status} />
+                <FormStatusBadge student={student} />
               </div>
             </div>
 
-            {/* Form block warning */}
-            {(student.equipment_form_status === 'no_form' || student.equipment_form_status === 'restricted') && (
-              <div className={styles.formBlockBanner}>
-                {student.equipment_form_status === 'restricted' ? (
-                  '🚫 Student is restricted from equipment checkout.'
-                ) : noFormOverride ? (
-                  <span style={{ color: '#D8A31A' }}>
-                    ⚠ Manager override active — no form on file. Document accordingly.
-                  </span>
-                ) : (
-                  <>
-                    ⚠ No equipment form on file.{' '}
-                    <button className={styles.overrideInlineBtn} onClick={() => setNoFormOverride(true)}>
-                      Manager override
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+            {/* Form block / temp pass warning */}
+            {(() => {
+              const efs = effectiveFormStatus(student)
+              if (efs === 'restricted') return (
+                <div className={styles.formBlockBanner}>
+                  🚫 Student is restricted from equipment checkout.
+                </div>
+              )
+              if (efs === 'no_form') {
+                const wasTemp = student.equipment_form_status === 'temp_pass'
+                return (
+                  <div className={styles.formBlockBanner}>
+                    {noFormOverride ? (
+                      <span style={{ color: '#D8A31A' }}>
+                        ⚠ Manager override active — no form on file. Document accordingly.
+                      </span>
+                    ) : (
+                      <>
+                        {wasTemp ? '⏰ Temp pass expired.' : '⚠ No equipment form on file.'}{' '}
+                        <button className={styles.overrideInlineBtn} onClick={() => setNoFormOverride(true)}>
+                          Manager override
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              }
+              if (efs === 'temp_pass') {
+                const exp = new Date(student.temp_access_expires_at)
+                const timeStr = exp.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                const dateStr = exp.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                return (
+                  <div className={styles.formBlockBanner} style={{ background: '#FFFBEB', border: '1px solid #FCD34D', color: '#92400E' }}>
+                    ⏰ Temp pass active — expires {dateStr} at {timeStr}. Guardian form required before next checkout.
+                  </div>
+                )
+              }
+              return null
+            })()}
 
             <div className={styles.cart}>
               {cart.length === 0
@@ -743,7 +787,7 @@ export default function Kiosk() {
               </button>
               <button className={styles.primaryBtn}
                 onClick={confirmCheckout}
-                disabled={!cart.length || overrideNeeded || student?.equipment_form_status === 'restricted' || (student?.equipment_form_status === 'no_form' && !noFormOverride)}>
+                disabled={!cart.length || overrideNeeded || (() => { const e = effectiveFormStatus(student); return e === 'restricted' || (e === 'no_form' && !noFormOverride) })()}>
                 Confirm checkout
               </button>
             </div>

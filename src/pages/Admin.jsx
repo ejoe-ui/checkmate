@@ -20,7 +20,21 @@ const FORM_STATUSES = [
   { value: 'pending',      label: 'Pending'      },
   { value: 'no_form',      label: 'No form'      },
   { value: 'restricted',   label: 'Restricted'   },
+  { value: 'temp_pass',    label: 'Temp pass'    },
 ]
+
+function formatTempExpiry(iso) {
+  if (!iso) return null
+  const exp = new Date(iso)
+  const now = new Date()
+  if (exp < now) return { label: 'Expired', overdue: true }
+  const diffMs = exp - now
+  const diffH  = Math.floor(diffMs / 3600000)
+  const diffD  = Math.floor(diffMs / 86400000)
+  const timeStr = exp.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (diffD === 0) return { label: `Expires today at ${timeStr}`, overdue: false }
+  return { label: `Expires ${exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${timeStr}`, overdue: false }
+}
 
 const CONDITION_OUT_LABELS = {
   good:             '✓ Good condition',
@@ -769,14 +783,129 @@ function CheckoutsTab({ manager, pin }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ADD STUDENT MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function AddStudentModal({ manager, pin, onSave, onClose }) {
+  const [form, setForm] = useState({
+    name: '', email: '', classGroup: '', nfcUid: '', formStatus: 'no_form',
+  })
+  const [grantTempPass, setGrantTempPass] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Tomorrow end-of-day for preview
+  const tempExpires = (() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(23, 59, 0, 0)
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' at 11:59 PM'
+  })()
+
+  async function handleSave() {
+    if (!form.name.trim()) { setError('Name is required'); return }
+    setSaving(true); setError('')
+    const { data, error: err } = await adminCall('student.addStudent', {
+      managerId: manager.id, pin,
+      name:        form.name,
+      email:       form.email,
+      classGroup:  form.classGroup,
+      nfcUid:      form.nfcUid,
+      formStatus:  grantTempPass ? 'temp_pass' : form.formStatus,
+      grantTempPass,
+    })
+    setSaving(false)
+    if (err) { setError(err); return }
+    onSave(data)
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <button className={styles.modalClose} onClick={onClose}>✕</button>
+        <h2 className={styles.modalTitle}>Add student</h2>
+
+        <div className={styles.formGrid}>
+          <div className={`${styles.formField} ${styles.fullWidth}`}>
+            <label className={styles.formLabel}>Name *</label>
+            <input className={styles.formInput} value={form.name} autoFocus
+              onChange={e => set('name', e.target.value)} placeholder="First Last" />
+          </div>
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>Class / Grade</label>
+            <input className={styles.formInput} value={form.classGroup}
+              onChange={e => set('classGroup', e.target.value)} placeholder="e.g. Yearbook P2" />
+          </div>
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>Email</label>
+            <input className={styles.formInput} value={form.email}
+              onChange={e => set('email', e.target.value)} placeholder="student@rjusd.us" />
+          </div>
+          <div className={`${styles.formField} ${styles.fullWidth}`}>
+            <label className={styles.formLabel}>NFC UID</label>
+            <input className={styles.formInput} value={form.nfcUid}
+              onChange={e => set('nfcUid', e.target.value)}
+              placeholder="Scan a card or enter the UID — leave blank if no card yet" />
+            <span style={{ fontSize: 10, color: '#A8ABB8', marginTop: 3 }}>
+              If no card yet, leave blank. Add the UID after issuing one — checkout won't work until it's assigned.
+            </span>
+          </div>
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>Form status</label>
+            <select className={styles.formSelect} value={form.formStatus}
+              onChange={e => { set('formStatus', e.target.value); if (e.target.value === 'temp_pass') setGrantTempPass(true) }}
+              disabled={grantTempPass}>
+              {FORM_STATUSES.filter(f => f.value !== 'temp_pass').map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* 1-day temp pass toggle */}
+        <div className={styles.tempPassToggle}>
+          <label className={styles.tempPassLabel}>
+            <input type="checkbox" checked={grantTempPass}
+              onChange={e => setGrantTempPass(e.target.checked)} />
+            <span>Grant 1-day temp pass</span>
+          </label>
+          {grantTempPass && (
+            <div className={styles.tempPassInfo}>
+              ⏰ Student can check out equipment immediately. Pass expires <strong>{tempExpires}</strong>.
+              Guardian form required before next checkout.
+            </div>
+          )}
+          {!grantTempPass && (
+            <span className={styles.tempPassHint}>
+              Student needs to check out today but hasn't returned the form yet? Enable this.
+            </span>
+          )}
+        </div>
+
+        {error && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>{error}</p>}
+
+        <div className={styles.modalActions}>
+          <button className={styles.secondaryBtn} onClick={onClose}>Cancel</button>
+          <button className={styles.primaryBtn} onClick={handleSave}
+            disabled={saving || !form.name.trim()}>
+            {saving ? 'Adding…' : 'Add student'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // STUDENTS TAB
 // ═══════════════════════════════════════════════════════════════════════════
 function StudentsTab({ manager, pin }) {
-  const [students, setStudents]   = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [search, setSearch]       = useState('')
-  const [syncing, setSyncing]     = useState(false)
-  const [syncMsg, setSyncMsg]     = useState('')
+  const [students, setStudents]       = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [search, setSearch]           = useState('')
+  const [syncing, setSyncing]         = useState(false)
+  const [syncingPassable, setSyncingPassable] = useState(false)
+  const [syncMsg, setSyncMsg]         = useState('')
+  const [showAddModal, setShowAddModal] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -800,7 +929,8 @@ function StudentsTab({ manager, pin }) {
   const formStats = useMemo(() => ({
     total:      students.length,
     onFile:     students.filter(s => s.equipment_form_status === 'form_on_file').length,
-    noForm:     students.filter(s => s.equipment_form_status === 'no_form').length,
+    noForm:     students.filter(s => ['no_form', 'pending'].includes(s.equipment_form_status)).length,
+    tempPass:   students.filter(s => s.equipment_form_status === 'temp_pass').length,
     restricted: students.filter(s => s.equipment_form_status === 'restricted').length,
   }), [students])
 
@@ -811,13 +941,36 @@ function StudentsTab({ manager, pin }) {
     ))
   }
 
+  async function handleGrantTempPass(studentId) {
+    const { ok, expiresAt, error } = await adminCall('student.grantTempPass', { managerId: manager.id, pin, studentId })
+    if (error) { alert('Failed: ' + error); return }
+    setStudents(prev => prev.map(s =>
+      s.id === studentId
+        ? { ...s, equipment_form_status: 'temp_pass', temp_access_expires_at: expiresAt }
+        : s
+    ))
+  }
+
   async function handleSyncAllPhotos() {
-    setSyncing(true)
-    setSyncMsg('')
+    setSyncing(true); setSyncMsg('')
     const { ok, synced, error } = await adminCall('student.syncAllPhotos', { managerId: manager.id, pin })
     setSyncing(false)
-    if (error) { setSyncMsg('Sync failed: ' + error); return }
+    if (error) { setSyncMsg('Photo sync failed: ' + error); return }
     setSyncMsg(`✓ Synced ${synced} photos from PassAble`)
+    load()
+  }
+
+  async function handleSyncFromPassable() {
+    setSyncingPassable(true); setSyncMsg('')
+    const { ok, added, updated, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin })
+    setSyncingPassable(false)
+    if (error) { setSyncMsg('Sync failed: ' + error); return }
+    setSyncMsg(`✓ ${added} new students added, ${updated} updated from PassAble`)
+    load()
+  }
+
+  function handleStudentAdded(newStudent) {
+    setShowAddModal(false)
     load()
   }
 
@@ -838,27 +991,37 @@ function StudentsTab({ manager, pin }) {
           <div className={styles.statLabel}>No form</div>
         </div>
         <div className={styles.statCard}>
+          <div className={styles.statNum} style={{ color: '#B45309' }}>{formStats.tempPass}</div>
+          <div className={styles.statLabel}>Temp pass</div>
+        </div>
+        <div className={styles.statCard}>
           <div className={styles.statNum} style={{ color: '#dc2626' }}>{formStats.restricted}</div>
           <div className={styles.statLabel}>Restricted</div>
         </div>
       </div>
 
-      {/* Photo sync banner */}
+      {/* Sync banners */}
       <div className={styles.syncBanner}>
+        <span>🎒 Sync all students from PassAble at the start of each year.</span>
+        <button className={styles.secondaryBtn} onClick={handleSyncFromPassable} disabled={syncingPassable}>
+          {syncingPassable ? 'Syncing…' : 'Sync students from PassAble'}
+        </button>
+      </div>
+      <div className={styles.syncBanner} style={{ marginTop: 8 }}>
         <span>📸 Student photos sync from PassAble Lifetouch records.</span>
         <button className={styles.secondaryBtn} onClick={handleSyncAllPhotos} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Sync all photos'}
         </button>
       </div>
-      {syncMsg && <p style={{ fontSize: 12, color: '#166534', margin: '0 0 12px' }}>{syncMsg}</p>}
+      {syncMsg && <p style={{ fontSize: 12, color: '#166534', margin: '8px 0 0' }}>{syncMsg}</p>}
 
       {/* Toolbar */}
-      <div className={styles.toolbar}>
+      <div className={styles.toolbar} style={{ marginTop: 14 }}>
         <input className={styles.searchInput} placeholder="Search students…"
           value={search} onChange={e => setSearch(e.target.value)} />
-        <span style={{ fontSize: 12, color: '#7A7D8C', marginLeft: 'auto' }}>
-          Click a form status badge to change it
-        </span>
+        <button className={styles.primaryBtn} onClick={() => setShowAddModal(true)}>
+          + Add student
+        </button>
       </div>
 
       {/* Table */}
@@ -867,7 +1030,8 @@ function StudentsTab({ manager, pin }) {
       ) : filtered.length === 0 ? (
         <div className={styles.emptyState}>
           <span className={styles.emptyIcon}>🎒</span>
-          <p className={styles.emptyTitle}>{search ? 'No matches' : 'No students found'}</p>
+          <p className={styles.emptyTitle}>{search ? 'No matches' : 'No students yet'}</p>
+          <p className={styles.emptyHint}>{search ? 'Try a different search.' : 'Sync from PassAble or add students manually.'}</p>
         </div>
       ) : (
         <div className={styles.tableCard}>
@@ -883,36 +1047,61 @@ function StudentsTab({ manager, pin }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(s => (
-                <tr key={s.id}>
-                  <td>
-                    <div className={styles.studentCell}>
-                      <Avatar name={s.name} photoUrl={s.photo_url} photoAvailable={s.photo_available} />
-                      <strong>{s.name}</strong>
-                    </div>
-                  </td>
-                  <td className={styles.tdMuted}>{s.class_group || '—'}</td>
-                  <td className={styles.tdMuted}>{s.email || '—'}</td>
-                  <td className={styles.tdMono}>{s.nfc_uid || <span className={styles.tdMuted}>—</span>}</td>
-                  <td>
-                    <select className={styles.inlineSelect}
-                      value={s.equipment_form_status ?? 'no_form'}
-                      onChange={e => handleFormStatus(s.id, e.target.value)}>
-                      {FORM_STATUSES.map(f => (
-                        <option key={f.value} value={f.value}>{f.label}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    {s.photo_available
-                      ? <span style={{ fontSize: 11, color: '#166534' }}>✓ Synced</span>
-                      : <span style={{ fontSize: 11, color: '#A8ABB8' }}>—</span>}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(s => {
+                const tempInfo = s.equipment_form_status === 'temp_pass'
+                  ? formatTempExpiry(s.temp_access_expires_at) : null
+                return (
+                  <tr key={s.id}>
+                    <td>
+                      <div className={styles.studentCell}>
+                        <Avatar name={s.name} photoUrl={s.photo_url} photoAvailable={s.photo_available} />
+                        <strong>{s.name}</strong>
+                      </div>
+                    </td>
+                    <td className={styles.tdMuted}>{s.class_group || '—'}</td>
+                    <td className={styles.tdMuted}>{s.email || '—'}</td>
+                    <td className={styles.tdMono}>{s.nfc_uid || <span className={styles.tdMuted}>—</span>}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <select className={styles.inlineSelect}
+                          value={s.equipment_form_status ?? 'no_form'}
+                          onChange={e => handleFormStatus(s.id, e.target.value)}>
+                          {FORM_STATUSES.map(f => (
+                            <option key={f.value} value={f.value}>{f.label}</option>
+                          ))}
+                        </select>
+                        {tempInfo && (
+                          <span className={tempInfo.overdue ? styles.tempExpiredTag : styles.tempActiveTag}>
+                            ⏰ {tempInfo.label}
+                          </span>
+                        )}
+                        {['no_form', 'pending'].includes(s.equipment_form_status) && (
+                          <button className={styles.grantPassBtn}
+                            onClick={() => handleGrantTempPass(s.id)}>
+                            Grant 1-day pass
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      {s.photo_available
+                        ? <span style={{ fontSize: 11, color: '#166534' }}>✓ Synced</span>
+                        : <span style={{ fontSize: 11, color: '#A8ABB8' }}>—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {showAddModal && (
+        <AddStudentModal
+          manager={manager} pin={pin}
+          onSave={handleStudentAdded}
+          onClose={() => setShowAddModal(false)}
+        />
       )}
     </div>
   )
