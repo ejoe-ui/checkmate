@@ -19,7 +19,7 @@
 .root {
   display: grid;
   grid-template-columns: 380px 1fr;
-  grid-template-rows: 52px 1fr 34px;
+  grid-template-rows: 64px 1fr 34px;
   height: 100dvh;
   background: #0F1020;
   color: #f0f0f0;
@@ -42,11 +42,10 @@
 }
 
 .logoImg {
-  height: 30px;
+  height: 44px;
   width: auto;
   object-fit: contain;
-  /* Slightly brighten so it pops on the dark header */
-  filter: brightness(1.15);
+  filter: brightness(1.1);
 }
 
 .headerSpacer { flex: 1; }

@@ -22,7 +22,7 @@
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  height: 52px;
+  height: 64px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255,255,255,0.07);
   background:
@@ -31,10 +31,10 @@
 }
 
 .logoImg {
-  height: 30px;
+  height: 44px;
   width: auto;
   object-fit: contain;
-  filter: brightness(1.15);
+  filter: brightness(1.1);
 }
 
 .adminBadge {
