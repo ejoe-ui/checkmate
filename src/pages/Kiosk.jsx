@@ -648,6 +648,10 @@ export default function Kiosk() {
               onClick={() => { setMode('return'); setState('return_scan') }}>
               ↩ Return equipment
             </button>
+            <a className={styles.agreementBtn}
+              href="/checkout-agreement.pdf" target="_blank" rel="noopener">
+              📄 Agreement
+            </a>
             <button className={styles.lockBtn} onClick={resetSession}>
               🔒 Lock
             </button>
@@ -762,6 +766,10 @@ export default function Kiosk() {
                     ) : (
                       <>
                         {wasTemp ? '⏰ Temp pass expired.' : '⚠ No equipment form on file.'}{' '}
+                        <a href="/checkout-agreement.pdf" target="_blank" rel="noopener"
+                          style={{ color: '#7C3AED', fontWeight: 600, marginRight: 8 }}>
+                          🖨 Print form
+                        </a>
                         <button className={styles.overrideInlineBtn} onClick={() => setNoFormOverride(true)}>
                           Manager override
                         </button>

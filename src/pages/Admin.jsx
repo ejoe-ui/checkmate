@@ -1798,6 +1798,10 @@ function StudentsTab({ manager, pin }) {
       <div className={styles.toolbar} style={{ marginTop: 14 }}>
         <input className={styles.searchInput} placeholder="Search students…"
           value={search} onChange={e => setSearch(e.target.value)} />
+        <a className={styles.secondaryBtn} href="/checkout-agreement.pdf" target="_blank" rel="noopener"
+          style={{ textDecoration: 'none' }}>
+          🖨 Print agreement
+        </a>
         <button className={styles.primaryBtn} onClick={() => setShowAddModal(true)}>
           + Add student
         </button>
