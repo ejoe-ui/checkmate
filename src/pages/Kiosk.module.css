@@ -7,7 +7,7 @@
   --surface:          #FFFFFF   table rows
   --surface-soft:     #FAFAFD   alt rows
   --border:           #E4E1EC   dividers
-  --accent-purple:    #7C5CFF   primary action
+  --accent-purple:    #7C3AED   primary action
   --accent-soft:      #EEE9FF   active tab bg
   --accent-gold:      #D8A31A   return / warning action
   --success:          #37B37E   returned / in status
@@ -41,23 +41,12 @@
     #0B0C1A;
 }
 
-.logo {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: #7C5CFF;
-  display: flex;
-  flex-direction: column;
-  gap: 0px;
-  line-height: 1.1;
-}
-
-.logoSub {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.28);
+.logoImg {
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  /* Slightly brighten so it pops on the dark header */
+  filter: brightness(1.15);
 }
 
 .headerSpacer { flex: 1; }
@@ -228,7 +217,7 @@
   font-weight: 600;
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  color: #7C5CFF;
+  color: #7C3AED;
   margin: 0;
 }
 
@@ -251,12 +240,12 @@
   color: white;
   outline: none;
 }
-.pinInput:focus { border-color: #7C5CFF; }
+.pinInput:focus { border-color: #7C3AED; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────────*/
 .primaryBtn {
   padding: 9px 20px;
-  background: #7C5CFF;
+  background: #7C3AED;
   color: white;
   font-size: 12px;
   font-weight: 600;
@@ -301,7 +290,7 @@
   padding: 10px 12px 10px 10px;
   background: rgba(124,92,255,0.14);
   border: 1px solid rgba(124,92,255,0.35);
-  border-left: 3px solid #7C5CFF;
+  border-left: 3px solid #7C3AED;
   border-radius: 10px;
 }
 
@@ -472,7 +461,7 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.4px;
-  color: #7C5CFF;
+  color: #7C3AED;
   background: rgba(124,92,255,0.15);
   border-radius: 999px;
   padding: 2px 8px;
@@ -598,7 +587,7 @@
 
 .pillActive {
   background: rgba(124,92,255,0.2);
-  border-color: #7C5CFF;
+  border-color: #7C3AED;
   color: #c4b5fd;
 }
 
@@ -615,7 +604,7 @@
 
 .dueDisplay {
   font-size: 11px;
-  color: #7C5CFF;
+  color: #7C3AED;
   opacity: 0.85;
 }
 
@@ -748,7 +737,7 @@
 }
 .kitProgressBar {
   height: 100%;
-  background: #7C5CFF;
+  background: #7C3AED;
   border-radius: 2px;
   transition: width 0.3s ease;
 }
@@ -837,7 +826,7 @@
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
-  color: #7C5CFF;
+  color: #7C3AED;
   letter-spacing: 0.2px;
   animation: swapPulse 1.2s ease-in-out infinite;
 }
@@ -979,7 +968,7 @@
   transition: border-color 0.12s;
 }
 .searchInput::placeholder { color: #7A7D8C; }
-.searchInput:focus { border-color: #7C5CFF; }
+.searchInput:focus { border-color: #7C3AED; }
 
 .filterPill {
   font-size: 11px;
@@ -993,7 +982,7 @@
   white-space: nowrap;
   transition: all 0.12s;
 }
-.filterPill:hover { border-color: #7C5CFF; color: #5E3FE6; }
+.filterPill:hover { border-color: #7C3AED; color: #5E3FE6; }
 
 .filterActive {
   background: rgba(220,38,38,0.06);
@@ -1081,7 +1070,7 @@
 
 .dueCol { display: flex; flex-direction: column; gap: 2px; }
 .dueDate      { color: #7A7D8C; }
-.dueCountdown { font-size: 10px; color: #7C5CFF; }
+.dueCountdown { font-size: 10px; color: #7C3AED; }
 .dueLate      { color: #dc2626; }
 
 .reasonCell { color: #7A7D8C; font-size: 11px; }
@@ -1185,8 +1174,8 @@
 .detailRow > span:last-child  { color: #1D2030; text-align: right; word-break: break-word; font-weight: 500; }
 
 /* detail panel label override */
-.detailPanel .label { color: #7C5CFF; }
-.detailPanel .classTag { color: #7C5CFF; background: #EEE9FF; }
+.detailPanel .label { color: #7C3AED; }
+.detailPanel .classTag { color: #7C3AED; background: #EEE9FF; }
 
 /* ── Footer ────────────────────────────────────────────────────────────────*/
 .footer {
@@ -1274,7 +1263,7 @@
   background: #fafafa;
   margin-bottom: 14px;
 }
-.noteEditorTextarea:focus { outline: none; border-color: #7C5CFF; background: #fff; }
+.noteEditorTextarea:focus { outline: none; border-color: #7C3AED; background: #fff; }
 
 .noteEditorRow {
   display: flex;
@@ -1296,6 +1285,6 @@
   outline: none;
 }
 .noteEditorPinInput:focus {
-  border-color: #7C5CFF;
+  border-color: #7C3AED;
   background: #fff;
 }

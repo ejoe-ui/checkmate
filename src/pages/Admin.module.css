@@ -30,21 +30,11 @@
     #0B0C1A;
 }
 
-.logo {
-  font-size: 15px;
-  font-weight: 700;
-  color: #7C5CFF;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.logoSub {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.28);
+.logoImg {
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  filter: brightness(1.15);
 }
 
 .adminBadge {
@@ -146,11 +136,11 @@
   max-width: 320px;
 }
 .searchInput::placeholder { color: #A8ABB8; }
-.searchInput:focus { border-color: #7C5CFF; }
+.searchInput:focus { border-color: #7C3AED; }
 
 .primaryBtn {
   padding: 8px 16px;
-  background: #7C5CFF;
+  background: #7C3AED;
   color: white;
   font-size: 12px;
   font-weight: 600;
@@ -331,7 +321,7 @@
   outline: none;
   cursor: pointer;
 }
-.inlineSelect:focus { border-color: #7C5CFF; }
+.inlineSelect:focus { border-color: #7C3AED; }
 
 /* ── Modal overlay ──────────────────────────────────────────────────────────*/
 .modalOverlay {
@@ -411,7 +401,7 @@
   color: #1D2030;
   outline: none;
 }
-.formInput:focus { border-color: #7C5CFF; }
+.formInput:focus { border-color: #7C3AED; }
 
 .formSelect {
   font-size: 13px;
@@ -422,7 +412,7 @@
   color: #1D2030;
   outline: none;
 }
-.formSelect:focus { border-color: #7C5CFF; }
+.formSelect:focus { border-color: #7C3AED; }
 
 .formTextarea {
   font-size: 13px;
@@ -436,7 +426,7 @@
   min-height: 70px;
   font-family: inherit;
 }
-.formTextarea:focus { border-color: #7C5CFF; }
+.formTextarea:focus { border-color: #7C3AED; }
 
 .modalActions {
   display: flex;
@@ -526,7 +516,7 @@
   outline: none;
   background: #FFFFFF;
 }
-.authInput:focus { border-color: #7C5CFF; }
+.authInput:focus { border-color: #7C3AED; }
 .authError {
   font-size: 12px;
   color: #dc2626;
@@ -922,7 +912,7 @@
   transition: border-color 0.12s;
 }
 .formInput:focus,
-.formSelect:focus { border-color: #7C5CFF; background: #FDFCFF; }
+.formSelect:focus { border-color: #7C3AED; background: #FDFCFF; }
 
 /* ── Temp pass toggle ───────────────────────────────────────────────────────*/
 .tempPassToggle {
@@ -986,8 +976,8 @@
 }
 .subTab:hover { background: #EEE9FF; border-color: #A594F9; }
 .subTabActive {
-  background: #7C5CFF;
-  border-color: #7C5CFF;
+  background: #7C3AED;
+  border-color: #7C3AED;
   color: #fff;
 }
 .subTabActive:hover { background: #6B4EE8; }

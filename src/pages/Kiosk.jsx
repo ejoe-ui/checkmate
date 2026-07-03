@@ -634,10 +634,11 @@ export default function Kiosk() {
 
       {/* ── HEADER ── */}
       <header className={styles.header}>
-        <span className={styles.logo}>
-          ♟ RHS CheckMate
-          <span className={styles.logoSub}>Equipment Checkout System</span>
-        </span>
+        <img
+          src="/logo-full.png"
+          alt="RHS CheckMate"
+          className={styles.logoImg}
+        />
         {manager && <span className={styles.managerBadge}>🔓 {manager.name}</span>}
         {mode === 'return' && <span className={styles.modeBadge}>RETURN MODE</span>}
         <span className={styles.headerSpacer} />
