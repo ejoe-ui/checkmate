@@ -565,6 +565,62 @@ Deno.serve(async (req) => {
       return json({ ok: true }, corsHeaders)
     }
 
+    // ── checkout.manual ───────────────────────────────────────────────────
+    // Creates a backdated/manual checkout record (paper fallback).
+    // Inserts one cm_checkouts row per equipment item and updates status.
+    // Pass checkedInAt to record an already-returned checkout.
+    if (action === 'checkout.manual') {
+      const {
+        studentId, equipmentIds,
+        checkedOutAt, dueAt,
+        reason, teacherName,
+        conditionOut, conditionOutNotes, approvedBy,
+        // Optional — if the item was already returned
+        checkedInAt, conditionIn, conditionInNotes,
+      } = body
+
+      if (!studentId || !Array.isArray(equipmentIds) || equipmentIds.length === 0 || !dueAt)
+        return json({ error: 'studentId, equipmentIds (array), and dueAt are required' }, corsHeaders)
+
+      const { data: mgr } = await supabase
+        .from('cm_managers').select('name').eq('id', managerId).single()
+      const byName = approvedBy || mgr?.name || null
+      const outAt  = checkedOutAt || new Date().toISOString()
+      const inAt   = checkedInAt  || null
+
+      const results: unknown[] = []
+      for (const equipmentId of equipmentIds) {
+        const { data: rec, error: insertErr } = await supabase
+          .from('cm_checkouts')
+          .insert({
+            student_id:          studentId,
+            equipment_id:        equipmentId,
+            manager_id:          managerId,
+            checked_out_at:      outAt,
+            due_at:              dueAt,
+            checked_in_at:       inAt,
+            reason:              reason              || null,
+            teacher_name:        teacherName         || null,
+            condition_out:       conditionOut        || 'good',
+            condition_out_notes: conditionOutNotes   || null,
+            condition_in:        inAt ? (conditionIn || 'returned_ok') : null,
+            condition_notes:     conditionInNotes    || null,
+            approved_by:         byName,
+          })
+          .select()
+          .single()
+
+        if (insertErr) return json({ error: insertErr.message }, corsHeaders)
+        results.push(rec)
+
+        // Update equipment status: 'Available' if already returned, else 'Checked Out'
+        const newStatus = inAt ? 'Available' : 'Checked Out'
+        await supabase.from('cm_equipment').update({ status: newStatus }).eq('id', equipmentId)
+      }
+
+      return json({ ok: true, records: results }, corsHeaders)
+    }
+
     // ── manager.list ──────────────────────────────────────────────────────
     if (action === 'manager.list') {
       const { data, error } = await supabase

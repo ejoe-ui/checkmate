@@ -700,6 +700,276 @@ function formatNoteTime(iso) {
   })
 }
 
+// ── Helper: local datetime string for <input type="datetime-local"> ──────────
+function localDT(offsetDays = 0, endOfDay = false) {
+  const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
+  if (endOfDay) d.setHours(23, 59, 0, 0)
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MANUAL CHECKOUT MODAL
+// ═══════════════════════════════════════════════════════════════════════════
+function ManualCheckoutModal({ manager, pin, onClose, onSaved }) {
+  const [students,       setStudents]       = useState([])
+  const [equipment,      setEquipment]      = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [saving,         setSaving]         = useState(false)
+  const [error,          setError]          = useState('')
+
+  // Form fields
+  const [studentId,      setStudentId]      = useState('')
+  const [studentSearch,  setStudentSearch]  = useState('')
+  const [equipSearch,    setEquipSearch]    = useState('')
+  const [selectedEquip,  setSelectedEquip]  = useState([]) // array of ids
+
+  const [checkedOutAt,   setCheckedOutAt]   = useState(localDT())
+  const [dueAt,          setDueAt]          = useState(localDT(1, true))
+  const [reason,         setReason]         = useState('')
+  const [teacherName,    setTeacherName]    = useState('')
+  const [conditionOut,   setConditionOut]   = useState('good')
+  const [conditionOutNotes, setConditionOutNotes] = useState('')
+  const [approvedBy,     setApprovedBy]     = useState(manager.name)
+
+  // Already-returned section
+  const [alreadyReturned, setAlreadyReturned] = useState(false)
+  const [checkedInAt,    setCheckedInAt]    = useState(localDT())
+  const [conditionIn,    setConditionIn]    = useState('returned_ok')
+  const [conditionInNotes, setConditionInNotes] = useState('')
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const [{ data: s }, { data: e }] = await Promise.all([
+        adminCall('student.list',    { managerId: manager.id, pin }),
+        adminCall('equipment.list',  { managerId: manager.id, pin }),
+      ])
+      setStudents(s ?? [])
+      setEquipment(e ?? [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch) return students
+    const q = studentSearch.toLowerCase()
+    return students.filter(s => s.name.toLowerCase().includes(q) || (s.class_group ?? '').toLowerCase().includes(q))
+  }, [students, studentSearch])
+
+  const filteredEquip = useMemo(() => {
+    const q = equipSearch.toLowerCase()
+    return equipment.filter(e =>
+      (!q || e.name.toLowerCase().includes(q) || (e.category ?? '').toLowerCase().includes(q)) &&
+      !e.is_container  // Don't allow selecting kit containers directly — scan items individually
+    )
+  }, [equipment, equipSearch])
+
+  function toggleEquip(id) {
+    setSelectedEquip(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  async function handleSave() {
+    setError('')
+    if (!studentId)           return setError('Please select a student.')
+    if (!selectedEquip.length) return setError('Please select at least one equipment item.')
+    if (!dueAt)               return setError('Due date is required.')
+    setSaving(true)
+    const { ok, error: err } = await adminCall('checkout.manual', {
+      managerId:       manager.id,
+      pin,
+      studentId,
+      equipmentIds:    selectedEquip,
+      checkedOutAt:    new Date(checkedOutAt).toISOString(),
+      dueAt:           new Date(dueAt).toISOString(),
+      reason:          reason     || null,
+      teacherName:     teacherName || null,
+      conditionOut,
+      conditionOutNotes: conditionOutNotes || null,
+      approvedBy,
+      ...(alreadyReturned ? {
+        checkedInAt:      new Date(checkedInAt).toISOString(),
+        conditionIn,
+        conditionInNotes: conditionInNotes || null,
+      } : {}),
+    })
+    setSaving(false)
+    if (err) return setError(err)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modal} style={{ maxWidth: 680 }}>
+        <button className={styles.modalClose} onClick={onClose}>✕</button>
+        <h2 className={styles.modalTitle}>Manual Checkout Entry</h2>
+        <p style={{ fontSize: 12, color: '#6B7280', marginTop: -8 }}>
+          Paper fallback — create a record without an NFC scan. Dates can be backdated.
+        </p>
+
+        {loading ? (
+          <p style={{ color: '#9CA3AF', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Loading students and equipment…</p>
+        ) : (<>
+
+          {/* ── STUDENT ─────────────────────────────────────────────── */}
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>Student *</label>
+            <input
+              className={styles.formInput}
+              placeholder="Search by name or class…"
+              value={studentSearch}
+              onChange={e => { setStudentSearch(e.target.value); setStudentId('') }}
+            />
+            {studentSearch && !studentId && (
+              <div className={styles.equipPickerList} style={{ maxHeight: 160 }}>
+                {filteredStudents.length === 0
+                  ? <div className={styles.equipPickerEmpty}>No students found</div>
+                  : filteredStudents.slice(0, 12).map(s => (
+                    <div key={s.id} className={styles.equipPickerItem}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => { setStudentId(s.id); setStudentSearch(s.name + (s.class_group ? ` · ${s.class_group}` : '')) }}>
+                      <span className={styles.equipPickerName}>{s.name}</span>
+                      {s.class_group && <span className={styles.equipPickerMeta}>{s.class_group}</span>}
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+            {studentId && (
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:12, color:'#7C3AED', fontWeight:600 }}>✓ {students.find(s=>s.id===studentId)?.name}</span>
+                <button onClick={() => { setStudentId(''); setStudentSearch('') }}
+                  style={{ fontSize:11, color:'#9CA3AF', background:'none', border:'none', cursor:'pointer' }}>✕ clear</button>
+              </div>
+            )}
+          </div>
+
+          {/* ── EQUIPMENT ───────────────────────────────────────────── */}
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>
+              Equipment * — {selectedEquip.length > 0
+                ? <span style={{ color:'#7C3AED' }}>{selectedEquip.length} selected</span>
+                : 'check all that apply'}
+            </label>
+            <input
+              className={styles.formInput}
+              placeholder="Filter equipment by name or category…"
+              value={equipSearch}
+              onChange={e => setEquipSearch(e.target.value)}
+            />
+            <div className={styles.equipPickerList}>
+              {filteredEquip.length === 0
+                ? <div className={styles.equipPickerEmpty}>No equipment found</div>
+                : filteredEquip.map(e => (
+                  <label key={e.id} className={`${styles.equipPickerItem} ${selectedEquip.includes(e.id) ? styles.equipPickerItemChecked : ''}`}>
+                    <input type="checkbox" checked={selectedEquip.includes(e.id)} onChange={() => toggleEquip(e.id)}
+                      style={{ accentColor: '#7C3AED', flexShrink: 0 }} />
+                    <span className={styles.equipPickerName}>{e.name}</span>
+                    <span className={styles.equipPickerMeta}>{e.category} · {e.status}</span>
+                  </label>
+                ))
+              }
+            </div>
+          </div>
+
+          {/* ── DATES ───────────────────────────────────────────────── */}
+          <div className={styles.formGrid}>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Checked out at</label>
+              <input type="datetime-local" className={styles.formInput}
+                value={checkedOutAt} onChange={e => setCheckedOutAt(e.target.value)} />
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Due *</label>
+              <input type="datetime-local" className={styles.formInput}
+                value={dueAt} onChange={e => setDueAt(e.target.value)} />
+            </div>
+          </div>
+
+          {/* ── DETAILS ─────────────────────────────────────────────── */}
+          <div className={styles.formGrid}>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Reason</label>
+              <input className={styles.formInput} placeholder="e.g. News team, Journalism…"
+                value={reason} onChange={e => setReason(e.target.value)} />
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Teacher</label>
+              <input className={styles.formInput} placeholder="Responsible teacher"
+                value={teacherName} onChange={e => setTeacherName(e.target.value)} />
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Condition out</label>
+              <select className={styles.formSelect} value={conditionOut} onChange={e => setConditionOut(e.target.value)}>
+                {Object.entries(CONDITION_OUT_LABELS).map(([v, l]) =>
+                  <option key={v} value={v}>{l}</option>
+                )}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Approved by</label>
+              <input className={styles.formInput} value={approvedBy} onChange={e => setApprovedBy(e.target.value)} />
+            </div>
+            <div className={`${styles.formField} ${styles.fullWidth}`}>
+              <label className={styles.formLabel}>Condition notes</label>
+              <input className={styles.formInput} placeholder="Optional — note any existing damage or issues"
+                value={conditionOutNotes} onChange={e => setConditionOutNotes(e.target.value)} />
+            </div>
+          </div>
+
+          {/* ── ALREADY RETURNED toggle ──────────────────────────────── */}
+          <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer',
+            padding:'10px 14px', background:'#F3F4F6', borderRadius:8, fontSize:13, fontWeight:600, color:'#374151' }}>
+            <input type="checkbox" checked={alreadyReturned} onChange={e => setAlreadyReturned(e.target.checked)}
+              style={{ accentColor:'#7C3AED', width:15, height:15 }} />
+            Equipment has already been returned
+          </label>
+
+          {alreadyReturned && (
+            <div className={styles.formGrid} style={{ background:'#F0FDF4', padding:'14px', borderRadius:8, border:'1px solid #BBF7D0' }}>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Returned at</label>
+                <input type="datetime-local" className={styles.formInput}
+                  value={checkedInAt} onChange={e => setCheckedInAt(e.target.value)} />
+              </div>
+              <div className={styles.formField}>
+                <label className={styles.formLabel}>Return condition</label>
+                <select className={styles.formSelect} value={conditionIn} onChange={e => setConditionIn(e.target.value)}>
+                  {Object.entries(CONDITION_IN_LABELS).map(([v, l]) =>
+                    <option key={v} value={v}>{l}</option>
+                  )}
+                </select>
+              </div>
+              <div className={`${styles.formField} ${styles.fullWidth}`}>
+                <label className={styles.formLabel}>Return condition notes</label>
+                <input className={styles.formInput} placeholder="Optional — note any damage found on return"
+                  value={conditionInNotes} onChange={e => setConditionInNotes(e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <p style={{ color:'#dc2626', fontSize:13, background:'#FEF2F2',
+              padding:'10px 14px', borderRadius:8, margin:0 }}>{error}</p>
+          )}
+
+          <div className={styles.modalActions}>
+            <button className={styles.primaryBtn} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : '✓ Save checkout record'}
+            </button>
+            <button className={styles.secondaryBtn} onClick={onClose}>Cancel</button>
+          </div>
+
+        </>)}
+      </div>
+    </div>
+  )
+}
+
 function CheckoutsTab({ manager, pin }) {
   const [subTab, setSubTab]                 = useState('active') // 'active' | 'history' | 'issues'
   const [checkouts, setCheckouts]           = useState([])
@@ -710,6 +980,7 @@ function CheckoutsTab({ manager, pin }) {
   const [selectedCheckout, setSelectedCheckout] = useState(null)
   const [overdueNotes, setOverdueNotes]     = useState([])
   const [notesLoading, setNotesLoading]     = useState(false)
+  const [showManualEntry, setShowManualEntry] = useState(false)
   const [noteText, setNoteText]             = useState('')
   const [noteType, setNoteType]             = useState('contacted')
   const [extendDate, setExtendDate]         = useState('')
@@ -882,6 +1153,15 @@ function CheckoutsTab({ manager, pin }) {
 
   return (
     <div className={styles.content}>
+      {showManualEntry && (
+        <ManualCheckoutModal
+          manager={manager}
+          pin={pin}
+          onClose={() => setShowManualEntry(false)}
+          onSaved={() => { load(); setSubTab('active') }}
+        />
+      )}
+
       {/* Stats */}
       <div className={styles.statsRow}>
         <div className={styles.statCard}>
@@ -925,6 +1205,10 @@ function CheckoutsTab({ manager, pin }) {
         <button className={styles.secondaryBtn}
           onClick={() => subTab === 'active' ? load() : loadHistory(subTab === 'issues')}>
           ↻ Refresh
+        </button>
+        <button className={styles.primaryBtn} onClick={() => setShowManualEntry(true)}
+          style={{ marginLeft: 'auto' }}>
+          + Manual entry
         </button>
       </div>
 

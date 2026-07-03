@@ -1280,3 +1280,47 @@
   border-color: #4B2FCC;
   background: #fff;
 }
+
+/* ── Manual Checkout — equipment/student picker ──────────────────────────────*/
+.equipPickerList {
+  border: 1px solid #E4E1EC;
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #FAFAFA;
+  margin-top: 4px;
+}
+
+.equipPickerItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid #F0EEFF;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.equipPickerItem:last-child { border-bottom: none; }
+.equipPickerItem:hover { background: #F5F3FF; }
+.equipPickerItemChecked { background: #EDE9FE; }
+.equipPickerItemChecked:hover { background: #DDD6FE; }
+
+.equipPickerName {
+  flex: 1;
+  font-weight: 500;
+  color: #1D2030;
+}
+
+.equipPickerMeta {
+  font-size: 11px;
+  color: #9CA3AF;
+  white-space: nowrap;
+}
+
+.equipPickerEmpty {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: #9CA3AF;
+  text-align: center;
+}
