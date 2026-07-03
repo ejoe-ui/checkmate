@@ -1587,6 +1587,309 @@ function AuthGate({ onAuth }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// REPORTS TAB
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── CSV helper ────────────────────────────────────────────────────────────
+function downloadCSV(filename, rows) {
+  if (!rows.length) return
+  const headers = Object.keys(rows[0])
+  const escape = v => {
+    if (v == null) return ''
+    const s = String(v)
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s
+  }
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── Print helper — opens a new window with formatted HTML ─────────────────
+function openPrintWindow(title, bodyHtml) {
+  const w = window.open('', '_blank', 'width=900,height=700')
+  w.document.write(`<!DOCTYPE html><html><head>
+<title>${title}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; color: #111; padding: 24px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 11px; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th { background: #f3f4f6; text-align: left; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; border-bottom: 2px solid #d1d5db; }
+  td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-green { background: #d1fae5; color: #065f46; }
+  .badge-gray { background: #f3f4f6; color: #374151; }
+  .section-title { font-size: 13px; font-weight: 700; margin: 18px 0 6px; color: #1f2937; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+  .overdue { background: #fff7ed; }
+  @media print {
+    body { padding: 0; }
+    button { display: none !important; }
+  }
+</style>
+</head><body>
+${bodyHtml}
+<div style="margin-top:20px">
+  <button onclick="window.print()" style="padding:8px 18px;background:#7C5CFF;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">🖨 Print</button>
+</div>
+</body></html>`)
+  w.document.close()
+}
+
+function ReportsTab({ manager, pin }) {
+  const [reportData, setReportData]   = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const [activeReport, setActiveReport] = useState(null)
+  const [dateFrom, setDateFrom]       = useState('')
+  const [dateTo, setDateTo]           = useState('')
+
+  const fmtDT = d => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
+  const fmtD  = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const now   = () => new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+  // ── Load checkout history ─────────────────────────────────────────────────
+  async function loadCheckoutReport() {
+    setLoading(true); setActiveReport('checkout')
+    const { data } = await adminCall('checkout.listHistory', { limit: 500 })
+    setReportData(data ?? [])
+    setLoading(false)
+  }
+
+  // ── Load equipment list ────────────────────────────────────────────────────
+  async function loadEquipmentReport() {
+    setLoading(true); setActiveReport('equipment')
+    const { data: eq }  = await adminCall('equipment.list')
+    const { data: co }  = await supabase
+      .from('cm_checkouts')
+      .select('equipment_id, due_at, cm_students!student_id(name)')
+      .is('checked_in_at', null)
+    // Attach current checkout info to each item
+    const outMap = new Map((co ?? []).map(c => [c.equipment_id, c]))
+    const enriched = (eq ?? []).map(e => ({ ...e, _checkout: outMap.get(e.id) ?? null }))
+    setReportData(enriched)
+    setLoading(false)
+  }
+
+  // ── Load overdue ──────────────────────────────────────────────────────────
+  async function loadOverdueReport() {
+    setLoading(true); setActiveReport('overdue')
+    const now = new Date().toISOString()
+    const { data } = await supabase
+      .from('cm_checkouts')
+      .select(`
+        id, checked_out_at, due_at, reason, teacher_name, approved_by,
+        cm_students!student_id(id, name, email, class_group),
+        cm_equipment!equipment_id(name, category),
+        cm_managers!manager_id(name)
+      `)
+      .is('checked_in_at', null)
+      .lt('due_at', now)
+      .order('due_at', { ascending: true })
+    setReportData(data ?? [])
+    setLoading(false)
+  }
+
+  // ── Print: Checkout report ─────────────────────────────────────────────────
+  function printCheckoutReport() {
+    if (!reportData) return
+    let filtered = reportData
+    if (dateFrom) filtered = filtered.filter(r => new Date(r.checked_out_at) >= new Date(dateFrom))
+    if (dateTo)   filtered = filtered.filter(r => new Date(r.checked_out_at) <= new Date(dateTo + 'T23:59:59'))
+
+    const rows = filtered.map(r => `<tr>
+      <td>${r.cm_students?.name ?? '—'}</td>
+      <td>${r.cm_equipment?.name ?? '—'}<br/><span style="color:#888;font-size:10px">${r.cm_equipment?.category ?? ''}</span></td>
+      <td>${fmtDT(r.checked_out_at)}</td>
+      <td>${fmtDT(r.checked_in_at)}</td>
+      <td>${fmtD(r.due_at)}</td>
+      <td>${r.reason ?? '—'}</td>
+      <td>${r.cm_managers?.name ?? '—'}</td>
+      ${r.condition_in && r.condition_in !== 'returned_ok'
+        ? `<td><span class="badge badge-red">${CONDITION_IN_LABELS[r.condition_in] ?? r.condition_in}</span></td>`
+        : `<td><span style="color:#888">—</span></td>`}
+    </tr>`).join('')
+
+    openPrintWindow('CheckMate — Checkout History', `
+      <h1>Checkout History Report</h1>
+      <div class="subtitle">RHS Media Department · Generated ${now()} · ${filtered.length} records</div>
+      <table>
+        <thead><tr><th>Student</th><th>Equipment</th><th>Checked Out</th><th>Returned</th><th>Due</th><th>Reason</th><th>Manager</th><th>Return Condition</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`)
+  }
+
+  // ── CSV: Checkout report ───────────────────────────────────────────────────
+  function exportCheckoutCSV() {
+    if (!reportData) return
+    let filtered = reportData
+    if (dateFrom) filtered = filtered.filter(r => new Date(r.checked_out_at) >= new Date(dateFrom))
+    if (dateTo)   filtered = filtered.filter(r => new Date(r.checked_out_at) <= new Date(dateTo + 'T23:59:59'))
+
+    downloadCSV(`checkmate-checkouts-${new Date().toISOString().slice(0,10)}.csv`, filtered.map(r => ({
+      Student:          r.cm_students?.name ?? '',
+      Class:            r.cm_students?.class_group ?? '',
+      Equipment:        r.cm_equipment?.name ?? '',
+      Category:         r.cm_equipment?.category ?? '',
+      'Checked Out':    r.checked_out_at ? new Date(r.checked_out_at).toLocaleString() : '',
+      'Returned':       r.checked_in_at  ? new Date(r.checked_in_at).toLocaleString()  : '',
+      'Due':            r.due_at         ? new Date(r.due_at).toLocaleDateString()      : '',
+      Reason:           r.reason ?? '',
+      Teacher:          r.teacher_name ?? '',
+      'Approved By':    r.approved_by ?? '',
+      Manager:          r.cm_managers?.name ?? '',
+      'Condition Out':  CONDITION_OUT_LABELS[r.condition_out] ?? r.condition_out ?? '',
+      'Condition In':   CONDITION_IN_LABELS[r.condition_in]   ?? r.condition_in  ?? '',
+      'Condition Notes': r.condition_notes ?? '',
+    })))
+  }
+
+  // ── Print: Equipment status ────────────────────────────────────────────────
+  function printEquipmentReport() {
+    if (!reportData) return
+    const categories = [...new Set(reportData.map(e => e.category))].sort()
+    const sections = categories.map(cat => {
+      const items = reportData.filter(e => e.category === cat)
+      const rows = items.map(e => {
+        const co = e._checkout
+        const isOut = e.status === 'Checked Out'
+        const hasIssue = ['Damaged','Needs Inspection','Maintenance'].includes(e.status)
+        const badge = isOut
+          ? `<span class="badge badge-yellow">Out</span>`
+          : hasIssue
+            ? `<span class="badge badge-red">${e.status}</span>`
+            : `<span class="badge badge-green">Available</span>`
+        return `<tr${hasIssue ? ' class="overdue"' : ''}>
+          <td><strong>${e.name}</strong>${e.serial_number ? `<br/><span style="color:#888;font-size:10px">S/N: ${e.serial_number}</span>` : ''}</td>
+          <td>${badge}</td>
+          <td>${isOut && co ? co.cm_students?.name ?? '—' : '—'}</td>
+          <td>${isOut && co ? fmtD(co.due_at) : '—'}</td>
+          <td>${e.condition_notes ?? '—'}</td>
+          <td style="color:#888;font-size:10px">${e.nfc_uid ?? '—'}</td>
+        </tr>`
+      }).join('')
+      return `<div class="section-title">${cat} (${items.length})</div>
+        <table>
+          <thead><tr><th>Name / Serial</th><th>Status</th><th>Checked Out To</th><th>Due</th><th>Condition Notes</th><th>NFC UID</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`
+    }).join('')
+
+    openPrintWindow('CheckMate — Equipment Status', `
+      <h1>Equipment Status Report</h1>
+      <div class="subtitle">RHS Media Department · Generated ${now()} · ${reportData.length} items</div>
+      ${sections}`)
+  }
+
+  // ── Print: Overdue report ──────────────────────────────────────────────────
+  function printOverdueReport() {
+    if (!reportData) return
+    const rows = reportData.map(r => {
+      const daysOverdue = Math.floor((Date.now() - new Date(r.due_at)) / 86400000)
+      return `<tr class="overdue">
+        <td><strong>${r.cm_students?.name ?? '—'}</strong><br/>
+          <span style="color:#888;font-size:10px">${r.cm_students?.class_group ?? ''}</span></td>
+        <td>${r.cm_equipment?.name ?? '—'}<br/>
+          <span style="color:#888;font-size:10px">${r.cm_equipment?.category ?? ''}</span></td>
+        <td>${fmtD(r.due_at)}</td>
+        <td><span class="badge badge-red">${daysOverdue}d overdue</span></td>
+        <td>${r.reason ?? '—'}</td>
+        <td>${r.teacher_name ?? '—'}</td>
+        <td>${r.approved_by ?? '—'}</td>
+      </tr>`
+    }).join('')
+
+    openPrintWindow('CheckMate — Overdue Report', `
+      <h1>Overdue Checkouts Report</h1>
+      <div class="subtitle">RHS Media Department · Generated ${now()} · ${reportData.length} overdue item${reportData.length !== 1 ? 's' : ''}</div>
+      <table>
+        <thead><tr><th>Student</th><th>Equipment</th><th>Was Due</th><th>Days Overdue</th><th>Reason</th><th>Teacher</th><th>Approved By</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`)
+  }
+
+  return (
+    <div className={styles.content}>
+      <div className={styles.reportsGrid}>
+
+        {/* ── Checkout History ──────────────────────────────────────── */}
+        <div className={styles.reportCard}>
+          <div className={styles.reportCardHeader}>
+            <div className={styles.reportCardIcon}>📋</div>
+            <div>
+              <div className={styles.reportCardTitle}>Checkout History</div>
+              <div className={styles.reportCardDesc}>All returned checkouts with condition records</div>
+            </div>
+          </div>
+          <div className={styles.reportFilters}>
+            <label className={styles.reportFilterLabel}>From</label>
+            <input type="date" className={styles.reportDateInput} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+            <label className={styles.reportFilterLabel}>To</label>
+            <input type="date" className={styles.reportDateInput} value={dateTo} onChange={e => setDateTo(e.target.value)} />
+          </div>
+          <div className={styles.reportCardActions}>
+            <button className={styles.primaryBtn}
+              onClick={async () => { if (activeReport !== 'checkout' || !reportData) await loadCheckoutReport(); else printCheckoutReport() }}
+              disabled={loading && activeReport === 'checkout'}>
+              {loading && activeReport === 'checkout' ? 'Loading…' : activeReport === 'checkout' && reportData ? '🖨 Print report' : 'Load report'}
+            </button>
+            {activeReport === 'checkout' && reportData && (
+              <button className={styles.secondaryBtn} onClick={exportCheckoutCSV}>⬇ Export CSV</button>
+            )}
+            {activeReport === 'checkout' && reportData && (
+              <span className={styles.reportCount}>{reportData.length} records loaded</span>
+            )}
+          </div>
+        </div>
+
+        {/* ── Equipment Status ──────────────────────────────────────── */}
+        <div className={styles.reportCard}>
+          <div className={styles.reportCardHeader}>
+            <div className={styles.reportCardIcon}>📷</div>
+            <div>
+              <div className={styles.reportCardTitle}>Equipment Status Sheet</div>
+              <div className={styles.reportCardDesc}>All equipment grouped by category with current status</div>
+            </div>
+          </div>
+          <div className={styles.reportCardActions} style={{ marginTop: 32 }}>
+            <button className={styles.primaryBtn}
+              onClick={async () => { await loadEquipmentReport(); printEquipmentReport() }}
+              disabled={loading && activeReport === 'equipment'}>
+              {loading && activeReport === 'equipment' ? 'Loading…' : '🖨 Print report'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Overdue Report ────────────────────────────────────────── */}
+        <div className={styles.reportCard}>
+          <div className={styles.reportCardHeader}>
+            <div className={styles.reportCardIcon}>⚠</div>
+            <div>
+              <div className={styles.reportCardTitle}>Overdue Report</div>
+              <div className={styles.reportCardDesc}>All past-due checkouts with student and teacher info</div>
+            </div>
+          </div>
+          <div className={styles.reportCardActions} style={{ marginTop: 32 }}>
+            <button className={styles.primaryBtn}
+              onClick={async () => { await loadOverdueReport(); printOverdueReport() }}
+              disabled={loading && activeReport === 'overdue'}>
+              {loading && activeReport === 'overdue' ? 'Loading…' : '🖨 Print report'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ROOT ADMIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════
 export default function Admin() {
@@ -1651,12 +1954,18 @@ export default function Admin() {
                 onClick={() => setTab('managers')}>
                 👤 Managers
               </button>
+              <button
+                className={`${styles.tab} ${tab === 'reports' ? styles.tabActive : ''}`}
+                onClick={() => setTab('reports')}>
+                🖨 Reports
+              </button>
             </div>
 
             {tab === 'equipment' && <EquipmentTab manager={manager} pin={pin} />}
             {tab === 'checkouts' && <CheckoutsTab manager={manager} pin={pin} />}
             {tab === 'students'  && <StudentsTab  manager={manager} pin={pin} />}
             {tab === 'managers'  && <ManagersTab />}
+            {tab === 'reports'   && <ReportsTab manager={manager} pin={pin} />}
           </div>
         </>
       )}

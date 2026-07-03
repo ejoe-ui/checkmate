@@ -1163,3 +1163,81 @@
 
 /* ── Issue row highlight ──────────────────────────────────────────────────────*/
 .issueRow { background: rgba(220,38,38,0.04); }
+
+/* ── Reports tab ─────────────────────────────────────────────────────────────*/
+.reportsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  padding: 24px;
+}
+
+.reportCard {
+  background: #fff;
+  border: 1px solid #E4E1EC;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reportCardHeader {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.reportCardIcon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.reportCardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.reportCardDesc {
+  font-size: 12px;
+  color: #888;
+  margin-top: 3px;
+}
+
+.reportFilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reportFilterLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.reportDateInput {
+  border: 1px solid #E4E1EC;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: #1a1a2e;
+}
+
+.reportCardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reportCount {
+  font-size: 11px;
+  color: #888;
+  margin-left: 4px;
+}
