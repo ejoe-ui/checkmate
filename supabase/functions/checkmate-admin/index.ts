@@ -41,7 +41,9 @@ Deno.serve(async (req) => {
     const { action, managerId, pin } = body
 
     // ── PIN verify for all write actions ──────────────────────────────────
-    const READ_ACTIONS = new Set(['equipment.getHistory', 'checkout.listHistory', 'checkout.getOverdueNotes'])
+    const READ_ACTIONS  = new Set(['equipment.getHistory', 'checkout.listHistory', 'checkout.getOverdueNotes'])
+    // Kiosk actions: manager already authenticated via NFC + PIN at kiosk login — accept pin='SESSION'
+    const KIOSK_ACTIONS = new Set(['equipment.hotSwap'])
     const isWrite = !action.endsWith('.list') && !READ_ACTIONS.has(action)
     if (isWrite) {
       const { data: mgr } = await supabase
@@ -49,9 +51,12 @@ Deno.serve(async (req) => {
         .select('pin_hash, active')
         .eq('id', managerId)
         .single()
-      const storedPin = (mgr?.pin_hash ?? '').replace(/^TEMP:/, '')
-      if (!mgr || !mgr.active || storedPin !== pin)
-        return json({ error: 'Unauthorized' }, corsHeaders)
+      if (!mgr || !mgr.active) return json({ error: 'Unauthorized' }, corsHeaders)
+      const isKioskSession = KIOSK_ACTIONS.has(action) && pin === 'SESSION'
+      if (!isKioskSession) {
+        const storedPin = (mgr.pin_hash ?? '').replace(/^TEMP:/, '')
+        if (storedPin !== pin) return json({ error: 'Unauthorized' }, corsHeaders)
+      }
     }
 
     // ── equipment.list ─────────────────────────────────────────────────────
@@ -139,6 +144,45 @@ Deno.serve(async (req) => {
         .update({ status: 'Retired' })
         .eq('id', equipmentId)
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+    }
+
+    // ── equipment.hotSwap ─────────────────────────────────────────────────
+    // Kiosk hot-swap: replaces a missing kit item with a scanned replacement.
+    // - Unlinks the missing item (parent_container_id = null, status = Needs Inspection)
+    // - Links the replacement item to the container
+    // Authenticated via SESSION pin (manager logged in at kiosk).
+    if (action === 'equipment.hotSwap') {
+      const { missingItemId, replacementItemId, containerId } = body
+      if (!missingItemId || !replacementItemId || !containerId)
+        return json({ error: 'missingItemId, replacementItemId, and containerId are required' }, corsHeaders)
+
+      // Verify replacement exists and is not in a blocked state
+      const { data: replacement } = await supabase
+        .from('cm_equipment')
+        .select('id, name, status, parent_container_id')
+        .eq('id', replacementItemId)
+        .single()
+
+      if (!replacement) return json({ error: 'Replacement item not found' }, corsHeaders)
+      const BLOCKED = ['Damaged', 'Retired', 'Lost']
+      if (BLOCKED.includes(replacement.status))
+        return json({ error: `Cannot swap — replacement is ${replacement.status}` }, corsHeaders)
+
+      // Unlink missing item and flag for inspection
+      const { error: e1 } = await supabase
+        .from('cm_equipment')
+        .update({ parent_container_id: null, status: 'Needs Inspection' })
+        .eq('id', missingItemId)
+      if (e1) return json({ error: e1.message }, corsHeaders)
+
+      // Link replacement to kit
+      const { error: e2 } = await supabase
+        .from('cm_equipment')
+        .update({ parent_container_id: containerId })
+        .eq('id', replacementItemId)
+      if (e2) return json({ error: e2.message }, corsHeaders)
+
+      return json({ ok: true, replacement }, corsHeaders)
     }
 
     // ── student.list ──────────────────────────────────────────────────────

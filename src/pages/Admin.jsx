@@ -293,6 +293,7 @@ function EquipmentTab({ manager, pin }) {
           item={editItem}
           onSave={handleSave}
           onClose={() => setEditItem(null)}
+          containers={equipment.filter(e => e.is_container && e.id !== editItem?.id)}
         />
       )}
 
@@ -302,8 +303,10 @@ function EquipmentTab({ manager, pin }) {
           item={selectedEquipment}
           manager={manager}
           pin={pin}
+          equipment={equipment}
           onClose={() => setSelectedEq(null)}
           onResolved={() => { setSelectedEq(null); load() }}
+          onUpdate={load}
         />
       )}
     </div>
@@ -315,13 +318,19 @@ function EquipmentTab({ manager, pin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const NEEDS_RESOLVE = new Set(['Damaged', 'Needs Inspection', 'Maintenance'])
 
-function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
-  const [tab, setTab]               = useState('info')   // 'info' | 'history'
+function EquipmentDetailPanel({ item, manager, pin, equipment = [], onClose, onResolved, onUpdate }) {
+  const [tab, setTab]               = useState('info')   // 'info' | 'contents' | 'history'
   const [history, setHistory]       = useState([])
   const [histLoading, setHistLoad]  = useState(false)
   const [resolveStatus, setRStatus] = useState('Available')
   const [resolveNote, setRNote]     = useState(item.condition_notes ?? '')
   const [saving, setSaving]         = useState(false)
+  const [kitRemoving, setKitRemoving] = useState(null) // id of item being removed
+
+  // Kit contents — items in the full equipment list whose parent is this container
+  const kitContents = item.is_container
+    ? equipment.filter(e => e.parent_container_id === item.id)
+    : []
 
   useEffect(() => {
     if (tab === 'history') loadHistory()
@@ -347,6 +356,18 @@ function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
     onResolved()
   }
 
+  async function handleRemoveFromKit(childItem) {
+    if (!confirm(`Remove "${childItem.name}" from this kit?`)) return
+    setKitRemoving(childItem.id)
+    const { error } = await adminCall('equipment.upsert', {
+      managerId: manager.id, pin,
+      equipment: { ...childItem, parent_container_id: null },
+    })
+    setKitRemoving(null)
+    if (error) { alert('Error: ' + error); return }
+    onUpdate?.()
+  }
+
   const needsResolve = NEEDS_RESOLVE.has(item.status)
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
   const fmtTime = d => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
@@ -369,6 +390,11 @@ function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
         {/* Sub-tabs */}
         <div className={styles.subTabRow}>
           <button className={`${styles.subTab} ${tab === 'info' ? styles.subTabActive : ''}`} onClick={() => setTab('info')}>Info & Condition</button>
+          {item.is_container && (
+            <button className={`${styles.subTab} ${tab === 'contents' ? styles.subTabActive : ''}`} onClick={() => setTab('contents')}>
+              Kit Contents {kitContents.length > 0 && `(${kitContents.length})`}
+            </button>
+          )}
           <button className={`${styles.subTab} ${tab === 'history' ? styles.subTabActive : ''}`} onClick={() => setTab('history')}>Checkout History</button>
         </div>
 
@@ -442,6 +468,48 @@ function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
           </div>
         )}
 
+        {/* Contents tab — only for kit containers */}
+        {tab === 'contents' && (
+          <div className={styles.detailBody}>
+            {kitContents.length === 0 ? (
+              <div className={styles.emptyState}>
+                <span className={styles.emptyIcon}>🎒</span>
+                <p className={styles.emptyTitle}>No items assigned to this kit</p>
+                <p className={styles.emptyHint}>Edit individual equipment items and set "Part of kit" to assign them here.</p>
+              </div>
+            ) : (
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>NFC UID</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kitContents.map(child => (
+                    <tr key={child.id}>
+                      <td><strong>{child.name}</strong></td>
+                      <td className={styles.tdMuted}>{child.category}</td>
+                      <td><StatusBadge status={child.status} /></td>
+                      <td className={styles.tdMono}>{child.nfc_uid || <span className={styles.tdMuted}>—</span>}</td>
+                      <td>
+                        <button className={styles.dangerBtn}
+                          disabled={kitRemoving === child.id}
+                          onClick={() => handleRemoveFromKit(child)}>
+                          {kitRemoving === child.id ? '…' : 'Remove'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
         {/* History tab */}
         {tab === 'history' && (
           <div className={styles.detailBody}>
@@ -489,21 +557,22 @@ function EquipmentDetailPanel({ item, manager, pin, onClose, onResolved }) {
   )
 }
 
-function EquipmentModal({ item, onSave, onClose }) {
+function EquipmentModal({ item, onSave, onClose, containers = [] }) {
   const isNew = !item.id
   const [form, setForm] = useState({
-    id:               item.id ?? undefined,
-    name:             item.name ?? '',
-    category:         item.category ?? 'Camera',
-    status:           item.status ?? 'Available',
-    nfc_uid:          item.nfc_uid ?? '',
-    serial_number:    item.serial_number ?? '',
-    asset_id:         item.asset_id ?? '',
-    storage_location: item.storage_location ?? '',
-    replacement_cost: item.replacement_cost ?? '',
-    equipment_notes:  item.equipment_notes ?? '',
-    photo_url:        item.photo_url ?? '',
-    is_container:     item.is_container ?? false,
+    id:                 item.id ?? undefined,
+    name:               item.name ?? '',
+    category:           item.category ?? 'Camera',
+    status:             item.status ?? 'Available',
+    nfc_uid:            item.nfc_uid ?? '',
+    serial_number:      item.serial_number ?? '',
+    asset_id:           item.asset_id ?? '',
+    storage_location:   item.storage_location ?? '',
+    replacement_cost:   item.replacement_cost ?? '',
+    equipment_notes:    item.equipment_notes ?? '',
+    photo_url:          item.photo_url ?? '',
+    is_container:       item.is_container ?? false,
+    parent_container_id: item.parent_container_id ?? null,
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -580,11 +649,25 @@ function EquipmentModal({ item, onSave, onClose }) {
           <div className={styles.formField}>
             <label className={styles.formLabel}>Kit / container?</label>
             <select className={styles.formSelect} value={form.is_container ? 'yes' : 'no'}
-              onChange={e => set('is_container', e.target.value === 'yes')}>
+              onChange={e => {
+                const isContainer = e.target.value === 'yes'
+                setForm(f => ({ ...f, is_container: isContainer, parent_container_id: isContainer ? null : f.parent_container_id }))
+              }}>
               <option value="no">No — single item</option>
               <option value="yes">Yes — kit bag with contents</option>
             </select>
           </div>
+          {!form.is_container && containers.length > 0 && (
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Part of kit (optional)</label>
+              <select className={styles.formSelect}
+                value={form.parent_container_id ?? ''}
+                onChange={e => set('parent_container_id', e.target.value || null)}>
+                <option value="">— standalone item —</option>
+                {containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className={styles.modalActions}>

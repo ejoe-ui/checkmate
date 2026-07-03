@@ -161,6 +161,9 @@ export default function Kiosk() {
   const [cart, setCart]                     = useState([])
   const [kitItem, setKitItem]               = useState(null)
   const [kitChecked, setKitChecked]         = useState({})
+  const [kitMissing, setKitMissing]         = useState({})
+  const [kitAnomalyMsg, setKitAnomalyMsg]   = useState('')
+  const [swapTargetId, setSwapTargetId]     = useState(null) // id of missing item awaiting swap scan
   const [message, setMessage]               = useState('')
   const [overrideNeeded, setOverrideNeeded] = useState(false)
   const [overridePin, setOverridePin]       = useState('')
@@ -295,7 +298,7 @@ export default function Kiosk() {
   const resetSession = useCallback(() => {
     clearTimeout(sessionTimer.current)
     setMode('locked'); setState('locked'); setManager(null); setStudent(null)
-    setCart([]); setKitItem(null); setKitChecked({}); setPin(''); setMessage('')
+    setCart([]); setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg(''); setSwapTargetId(null); setPin(''); setMessage('')
     setOverrideNeeded(false); setOverridePin(''); setReturnPending(null); setReturnCheckoutRecord(null)
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
     setConditionOut('good'); setConditionOutNotes(''); setApprovedBy(''); setNoFormOverride(false)
@@ -327,6 +330,15 @@ export default function Kiosk() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [state, cart])
+
+  // ── Commit verified kit to cart ───────────────────────────────────────────
+  const commitKitToCart = useCallback((checked, missing) => {
+    if (!kitItem) return
+    const verifiedContents = kitItem.contents.filter(c => checked[c.id])
+    setCart(prev => [...prev, kitItem, ...verifiedContents])
+    setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg(''); setSwapTargetId(null)
+    setState('scan_assets')
+  }, [kitItem])
 
   // ── NFC scan handler ──────────────────────────────────────────────────────
   const handleScan = useCallback(async (uid) => {
@@ -394,11 +406,13 @@ export default function Kiosk() {
 
         if (item.is_container) {
           const { data: contents } = await supabase
-            .from('cm_kit_contents')
-            .select('item_id, cm_equipment!item_id(id, name, nfc_uid)')
-            .eq('container_id', item.id)
-          setKitItem({ ...item, contents: contents?.map(c => c.cm_equipment) ?? [] })
-          setKitChecked({}); setState('kit_checklist'); return
+            .from('cm_equipment')
+            .select('id, name, nfc_uid, status, parent_container_id')
+            .eq('parent_container_id', item.id)
+            .order('name')
+          setKitItem({ ...item, contents: contents ?? [] })
+          setKitChecked({}); setKitMissing({}); setKitAnomalyMsg('')
+          setState('kit_checklist'); return
         }
         if (item.allowed_groups !== 'Any' && student?.class_group &&
             item.allowed_groups !== student.class_group) {
@@ -414,14 +428,69 @@ export default function Kiosk() {
 
     if (state === 'kit_checklist') {
       if (result.type === 'equipment') {
-        const match = kitItem.contents.find(c => c.nfc_uid === uid)
-        if (match) {
-          setKitChecked(prev => ({ ...prev, [match.id]: true }))
-          const allChecked = kitItem.contents.every(c => c.id === match.id || kitChecked[c.id])
-          if (allChecked) {
-            setCart(prev => [...prev, kitItem, ...kitItem.contents])
-            setKitItem(null); setState('scan_assets')
+        const scanned = result.data
+
+        // ── Swap mode: replace the flagged-missing item ───────────────────
+        if (swapTargetId) {
+          if (scanned.id === swapTargetId) {
+            setKitAnomalyMsg("⚠ That's the same item — scan a different one.")
+            setTimeout(() => setKitAnomalyMsg(''), 3000)
+            return
           }
+          const alreadyVerified = kitItem.contents.find(c => c.id === scanned.id && !kitMissing[scanned.id])
+          if (alreadyVerified) {
+            setKitAnomalyMsg(`⚠ "${scanned.name}" is already verified in this kit.`)
+            setTimeout(() => setKitAnomalyMsg(''), 3000)
+            return
+          }
+          const { ok, error } = await kioskAdminCall('equipment.hotSwap', {
+            managerId: manager.id, pin: 'SESSION',
+            missingItemId: swapTargetId,
+            replacementItemId: scanned.id,
+            containerId: kitItem.id,
+          })
+          if (error) {
+            setKitAnomalyMsg(`❌ Swap failed: ${error}`)
+            setTimeout(() => setKitAnomalyMsg(''), 4000)
+            return
+          }
+          // Update checklist: replace missing item with replacement
+          const newContents = kitItem.contents.map(c => c.id === swapTargetId ? scanned : c)
+          const newMissing  = { ...kitMissing }
+          delete newMissing[swapTargetId]
+          const newChecked  = { ...kitChecked, [scanned.id]: true }
+          const allDone = newContents.every(c => newChecked[c.id] || newMissing[c.id])
+          if (allDone) {
+            // Inline commit — avoids stale kitItem.contents closure in commitKitToCart
+            const verifiedContents = newContents.filter(c => newChecked[c.id])
+            setCart(prev => [...prev, kitItem, ...verifiedContents])
+            setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg(''); setSwapTargetId(null)
+            setState('scan_assets')
+          } else {
+            setKitItem(prev => ({ ...prev, contents: newContents }))
+            setKitMissing(newMissing)
+            setKitChecked(newChecked)
+            setSwapTargetId(null)
+            setKitAnomalyMsg('')
+          }
+          return
+        }
+
+        // ── Normal verification ───────────────────────────────────────────
+        const match = kitItem.contents.find(c => c.id === scanned.id)
+        if (match) {
+          if (kitMissing[match.id]) return // already flagged missing — ignore re-scan
+          const newChecked = { ...kitChecked, [match.id]: true }
+          setKitChecked(newChecked)
+          setKitAnomalyMsg('')
+          const allDone = kitItem.contents.every(c => newChecked[c.id] || kitMissing[c.id])
+          if (allDone) commitKitToCart(newChecked, kitMissing)
+        } else {
+          const msg = scanned.parent_container_id
+            ? `⚠ "${scanned.name}" belongs to a different kit — not added.`
+            : `⚠ "${scanned.name}" is not part of this kit.`
+          setKitAnomalyMsg(msg)
+          setTimeout(() => setKitAnomalyMsg(''), 4000)
         }
       }
       return
@@ -446,7 +515,7 @@ export default function Kiosk() {
       }
       return
     }
-  }, [state, student, kitItem, kitChecked, bumpSession])
+  }, [state, student, kitItem, kitChecked, kitMissing, swapTargetId, commitKitToCart, bumpSession])
 
   // ── PIN submit ────────────────────────────────────────────────────────────
   const handlePinSubmit = useCallback(async (e) => {
@@ -844,24 +913,97 @@ export default function Kiosk() {
         )}
 
         {/* KIT CHECKLIST */}
-        {state === 'kit_checklist' && kitItem && (
-          <div className={styles.card}>
-            <p className={styles.label}>Kit bag</p>
-            <h1>{kitItem.name}</h1>
-            <p className={styles.sub}>Scan each item to verify contents</p>
-            <div className={styles.checklist}>
-              {kitItem.contents.map(item => (
-                <div key={item.id} className={styles.checklistItem} data-checked={!!kitChecked[item.id]}>
-                  <span>{kitChecked[item.id] ? '✅' : '⬜'}</span>
-                  <span>{item.name}</span>
+        {state === 'kit_checklist' && kitItem && (() => {
+          const resolvedCount = Object.keys(kitChecked).length + Object.keys(kitMissing).length
+          const totalCount    = kitItem.contents.length
+          const allResolved   = totalCount > 0 && kitItem.contents.every(c => kitChecked[c.id] || kitMissing[c.id])
+          const pct = totalCount > 0 ? (resolvedCount / totalCount) * 100 : 100
+          return (
+            <div className={styles.assetView}>
+              <div className={styles.kitChecklistHeader}>
+                <div className={styles.kitChecklistBag}>🎒 {kitItem.name}</div>
+                <p className={styles.kitChecklistSub}>Open the bag and scan each item to verify</p>
+                <div className={styles.kitProgress}>
+                  <div className={styles.kitProgressBar} style={{ width: `${pct}%` }} />
                 </div>
-              ))}
+                <span className={styles.kitProgressLabel}>{resolvedCount} / {totalCount} items resolved</span>
+              </div>
+
+              <div className={styles.checklist}>
+                {totalCount === 0 ? (
+                  <div className={styles.kitEmptyMsg}>
+                    No items registered to this kit.
+                    <span className={styles.kitEmptyHint}>Assign contents in Admin → Equipment.</span>
+                  </div>
+                ) : kitItem.contents.map(kItem => {
+                  const verified = !!kitChecked[kItem.id]
+                  const missing  = !!kitMissing[kItem.id]
+                  return (
+                    <div key={kItem.id}
+                      className={`${styles.checklistItem} ${verified ? styles.checklistItemOk : missing ? styles.checklistItemMissing : ''}`}>
+                      <span className={styles.checklistIcon}>{verified ? '✅' : missing ? '❌' : '⬜'}</span>
+                      <span className={styles.checklistName}>{kItem.name}</span>
+                      {!verified && !missing && (
+                        <button className={styles.markMissingBtn}
+                          onClick={() => {
+                            const newMissing = { ...kitMissing, [kItem.id]: true }
+                            setKitMissing(newMissing)
+                            const done = kitItem.contents.every(c => kitChecked[c.id] || newMissing[c.id])
+                            if (done) commitKitToCart(kitChecked, newMissing)
+                          }}>
+                          Missing
+                        </button>
+                      )}
+                      {missing && (
+                        swapTargetId === kItem.id
+                          ? <span className={styles.swapActiveTag}>Scan replacement →</span>
+                          : <>
+                              <span className={styles.missingTag}>Not found</span>
+                              <button className={styles.swapBtn}
+                                onClick={() => { setSwapTargetId(kItem.id); setKitAnomalyMsg('') }}>
+                                Swap
+                              </button>
+                            </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {swapTargetId ? (
+                <div className={styles.kitSwapBanner}>
+                  🔄 Scan the replacement item now
+                  <button className={styles.swapCancelBtn} onClick={() => { setSwapTargetId(null); setKitAnomalyMsg('') }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : kitAnomalyMsg ? (
+                <div className={styles.kitAnomalyBanner}>{kitAnomalyMsg}</div>
+              ) : null}
+
+              <div className={styles.cartActions}>
+                <button className={styles.cancelBtn}
+                  onClick={() => { setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg(''); setSwapTargetId(null); setState('scan_assets') }}>
+                  ← Cancel
+                </button>
+                <button className={styles.secondaryBtn}
+                  title="Add only the bag — skip contents verification"
+                  onClick={() => {
+                    setCart(prev => [...prev, kitItem])
+                    setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg('')
+                    setState('scan_assets')
+                  }}>
+                  Bag only
+                </button>
+                <button className={styles.primaryBtn}
+                  disabled={!allResolved && totalCount > 0}
+                  onClick={() => commitKitToCart(kitChecked, kitMissing)}>
+                  Add to cart
+                </button>
+              </div>
             </div>
-            <button className={styles.cancelBtn} onClick={() => setState('scan_assets')}>
-              Skip verification
-            </button>
-          </div>
-        )}
+          )
+        })()}
 
         {/* RETURN — scan prompt */}
         {state === 'return_scan' && !returnPending && (

@@ -722,6 +722,157 @@
   color: #37B37E;
 }
 
+/* ── Kit checklist (enhanced) ──────────────────────────────────────────────*/
+.kitChecklistHeader {
+  padding: 14px 16px 10px;
+  border-bottom: 0.5px solid rgba(255,255,255,0.06);
+  margin-bottom: 6px;
+}
+.kitChecklistBag {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 3px;
+}
+.kitChecklistSub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  margin: 0 0 10px;
+}
+.kitProgress {
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+.kitProgressBar {
+  height: 100%;
+  background: #7C5CFF;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.kitProgressLabel {
+  font-size: 10px;
+  color: rgba(255,255,255,0.28);
+  font-variant-numeric: tabular-nums;
+}
+.checklistItemOk {
+  border-color: rgba(55,179,126,0.3) !important;
+  background: rgba(55,179,126,0.07) !important;
+  color: #37B37E !important;
+}
+.checklistItemMissing {
+  border-color: rgba(248,113,113,0.3) !important;
+  background: rgba(248,113,113,0.06) !important;
+  color: rgba(248,113,113,0.7) !important;
+}
+.checklistIcon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.checklistName {
+  flex: 1;
+  font-size: 12px;
+}
+.markMissingBtn {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  background: rgba(248,113,113,0.1);
+  border: 0.5px solid rgba(248,113,113,0.3);
+  border-radius: 5px;
+  color: rgba(248,113,113,0.8);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.markMissingBtn:hover { background: rgba(248,113,113,0.18); }
+.missingTag {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: rgba(248,113,113,0.55);
+  font-style: italic;
+}
+.kitEmptyMsg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+}
+.kitEmptyHint {
+  font-size: 10px;
+  color: rgba(255,255,255,0.18);
+}
+.kitAnomalyBanner {
+  margin: 6px 0 2px;
+  padding: 9px 12px;
+  background: rgba(251,191,36,0.1);
+  border: 0.5px solid rgba(251,191,36,0.3);
+  border-radius: 7px;
+  font-size: 11px;
+  color: #FBBF24;
+}
+
+/* ── Hot swap ───────────────────────────────────────────────────────────────*/
+.swapBtn {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  background: rgba(124,92,255,0.12);
+  border: 0.5px solid rgba(124,92,255,0.35);
+  border-radius: 5px;
+  color: #a78bfa;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.swapBtn:hover { background: rgba(124,92,255,0.22); }
+
+.swapActiveTag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: #7C5CFF;
+  letter-spacing: 0.2px;
+  animation: swapPulse 1.2s ease-in-out infinite;
+}
+
+.kitSwapBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0 2px;
+  padding: 10px 13px;
+  background: rgba(124,92,255,0.12);
+  border: 0.5px solid rgba(124,92,255,0.4);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a78bfa;
+}
+
+.swapCancelBtn {
+  padding: 2px 9px;
+  background: none;
+  border: 0.5px solid rgba(124,92,255,0.35);
+  border-radius: 4px;
+  color: rgba(167,139,250,0.7);
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.swapCancelBtn:hover { border-color: rgba(124,92,255,0.6); }
+
+@keyframes swapPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
 /* ── Messages ──────────────────────────────────────────────────────────────*/
 .flashMsg {
   font-size: 12px;
