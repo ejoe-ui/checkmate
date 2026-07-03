@@ -1052,3 +1052,81 @@
   text-decoration: none;
 }
 .footer a:hover { color: rgba(255,255,255,0.45); }
+
+/* ── Student note banner (in scan_assets left panel) ──────────────────────────*/
+.studentNoteBanner {
+  margin: 0 14px 10px;
+  padding: 9px 13px;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #FBBF24;
+  line-height: 1.4;
+}
+
+/* ── Note edit button in student bar ──────────────────────────────────────────*/
+.noteEditBtn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: rgba(255,255,255,0.6);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.noteEditBtn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+
+/* ── Note editor overlay ──────────────────────────────────────────────────────*/
+.noteEditorOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.noteEditorPanel {
+  background: #fff;
+  border-radius: 14px;
+  padding: 22px 24px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  color: #1a1a2e;
+}
+
+.noteEditorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+.noteEditorTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  color: #1a1a2e;
+  background: #fafafa;
+  margin-bottom: 14px;
+}
+.noteEditorTextarea:focus { outline: none; border-color: #7C5CFF; background: #fff; }
+
+.noteEditorRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}

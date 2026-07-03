@@ -1283,13 +1283,16 @@ function AddStudentModal({ manager, pin, onSave, onClose }) {
 // STUDENTS TAB
 // ═══════════════════════════════════════════════════════════════════════════
 function StudentsTab({ manager, pin }) {
-  const [students, setStudents]       = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [search, setSearch]           = useState('')
-  const [syncing, setSyncing]         = useState(false)
+  const [students, setStudents]         = useState([])
+  const [loading, setLoading]           = useState(true)
+  const [search, setSearch]             = useState('')
+  const [syncing, setSyncing]           = useState(false)
   const [syncingPassable, setSyncingPassable] = useState(false)
-  const [syncMsg, setSyncMsg]         = useState('')
+  const [syncMsg, setSyncMsg]           = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [selectedStudent, setSelectedStudent] = useState(null)
+  const [noteText, setNoteText]         = useState('')
+  const [noteSaving, setNoteSaving]     = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1346,11 +1349,34 @@ function StudentsTab({ manager, pin }) {
 
   async function handleSyncFromPassable() {
     setSyncingPassable(true); setSyncMsg('')
-    const { ok, added, updated, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin })
+    const { ok, added, updated, restricted, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin })
     setSyncingPassable(false)
     if (error) { setSyncMsg('Sync failed: ' + error); return }
-    setSyncMsg(`✓ ${added} new students added, ${updated} updated from PassAble`)
+    const parts = [`${added} added`, `${updated} updated`]
+    if (restricted > 0) parts.push(`${restricted} restricted (removed from PassAble)`)
+    setSyncMsg(`✓ ${parts.join(', ')}`)
     load()
+  }
+
+  function openStudentDetail(s) {
+    setSelectedStudent(s)
+    setNoteText(s.notes ?? '')
+  }
+
+  async function handleSaveNote() {
+    if (!selectedStudent || noteSaving) return
+    setNoteSaving(true)
+    const { ok, error } = await adminCall('student.setNote', {
+      managerId: manager.id, pin,
+      studentId: selectedStudent.id,
+      note: noteText,
+    })
+    if (error) { alert('Failed: ' + error); setNoteSaving(false); return }
+    setStudents(prev => prev.map(s =>
+      s.id === selectedStudent.id ? { ...s, notes: noteText.trim() || null } : s
+    ))
+    setSelectedStudent(prev => ({ ...prev, notes: noteText.trim() || null }))
+    setNoteSaving(false)
   }
 
   function handleStudentAdded(newStudent) {
@@ -1435,11 +1461,14 @@ function StudentsTab({ manager, pin }) {
                 const tempInfo = s.equipment_form_status === 'temp_pass'
                   ? formatTempExpiry(s.temp_access_expires_at) : null
                 return (
-                  <tr key={s.id}>
+                  <tr key={s.id} className={styles.clickableRow} onClick={() => openStudentDetail(s)}>
                     <td>
                       <div className={styles.studentCell}>
                         <Avatar name={s.name} photoUrl={s.photo_url} photoAvailable={s.photo_available} />
-                        <strong>{s.name}</strong>
+                        <div>
+                          <strong>{s.name}</strong>
+                          {s.notes && <div className={styles.studentNoteSnippet}>📌 {s.notes}</div>}
+                        </div>
                       </div>
                     </td>
                     <td className={styles.tdMuted}>{s.class_group || '—'}</td>
@@ -1486,6 +1515,73 @@ function StudentsTab({ manager, pin }) {
           onSave={handleStudentAdded}
           onClose={() => setShowAddModal(false)}
         />
+      )}
+
+      {/* Student detail panel */}
+      {selectedStudent && (
+        <div className={styles.detailOverlay} onClick={() => setSelectedStudent(null)}>
+          <div className={styles.detailPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.detailHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Avatar name={selectedStudent.name} photoUrl={selectedStudent.photo_url} photoAvailable={selectedStudent.photo_available} size="lg" />
+                <div>
+                  <div className={styles.detailName}>{selectedStudent.name}</div>
+                  <div className={styles.detailMeta}>
+                    {selectedStudent.class_group || '—'}
+                    {selectedStudent.email ? ` · ${selectedStudent.email}` : ''}
+                  </div>
+                </div>
+              </div>
+              <button className={styles.detailClose} onClick={() => setSelectedStudent(null)}>✕</button>
+            </div>
+            <div className={styles.detailBody}>
+              <div className={styles.infoGrid}>
+                <div>
+                  <span className={styles.infoLabel}>NFC UID</span>
+                  <span className={styles.tdMono}>{selectedStudent.nfc_uid || '—'}</span>
+                </div>
+                <div>
+                  <span className={styles.infoLabel}>Equipment form</span>
+                  <select className={styles.inlineSelect}
+                    value={selectedStudent.equipment_form_status ?? 'no_form'}
+                    onChange={e => {
+                      handleFormStatus(selectedStudent.id, e.target.value)
+                      setSelectedStudent(prev => ({ ...prev, equipment_form_status: e.target.value }))
+                    }}>
+                    {FORM_STATUSES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className={styles.infoLabel}>Last synced</span>
+                  <span>{selectedStudent.last_synced_at ? formatDate(selectedStudent.last_synced_at) : '—'}</span>
+                </div>
+                <div>
+                  <span className={styles.infoLabel}>Photo</span>
+                  <span>{selectedStudent.photo_available ? '✓ Synced' : '—'}</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <div className={styles.resolveSectionTitle}>Manager Note</div>
+                <textarea
+                  className={styles.noteTextarea}
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  placeholder="Add a note about this student…"
+                  rows={3}
+                />
+                <div className={styles.resolveRow}>
+                  <button className={styles.primaryBtn} onClick={handleSaveNote} disabled={noteSaving}>
+                    {noteSaving ? 'Saving…' : 'Save Note'}
+                  </button>
+                  {noteText.trim() !== (selectedStudent.notes ?? '') && (
+                    <span style={{ fontSize: 11, color: '#A8ABB8' }}>Unsaved changes</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

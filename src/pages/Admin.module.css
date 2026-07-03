@@ -1241,3 +1241,34 @@
   color: #888;
   margin-left: 4px;
 }
+
+/* ── Student note snippet (table row) ─────────────────────────────────────────*/
+.studentNoteSnippet {
+  font-size: 11px;
+  color: #92400E;
+  margin-top: 2px;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Note textarea (student + equipment detail panels) ────────────────────────*/
+.noteTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  color: #1a1a2e;
+  background: #fafafa;
+  margin-top: 8px;
+}
+.noteTextarea:focus {
+  outline: none;
+  border-color: #4B2FCC;
+  background: #fff;
+}

@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     if (action === 'student.list') {
       const { data, error } = await supabase
         .from('cm_students')
-        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at, temp_access_expires_at')
+        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at, temp_access_expires_at, notes')
         .order('name')
       if (error) return json({ error: error.message }, corsHeaders)
 
@@ -252,7 +252,7 @@ Deno.serve(async (req) => {
 
       const { data: existing } = await supabase
         .from('cm_students')
-        .select('id, passable_id, nfc_uid, equipment_form_status, temp_access_expires_at')
+        .select('id, passable_id, nfc_uid, equipment_form_status, temp_access_expires_at, last_synced_at')
 
       if (!passable) return json({ error: 'Could not load PassAble students' }, corsHeaders)
 
@@ -295,7 +295,36 @@ Deno.serve(async (req) => {
         }
       }
 
-      return json({ ok: true, added, updated }, corsHeaders)
+      // Auto-restrict students removed from PassAble.
+      // Only touches students who have a passable_id (came from a previous sync).
+      // Manually-added students (passable_id = null) are never auto-restricted.
+      const passableIdSet = new Set((passable || []).map((p: any) => p.id).filter(Boolean))
+      const toRestrict = (existing || []).filter((s: any) =>
+        s.passable_id &&
+        !passableIdSet.has(s.passable_id) &&
+        s.equipment_form_status !== 'restricted'
+      )
+      let restricted = 0
+      for (const s of toRestrict) {
+        await supabase.from('cm_students')
+          .update({ equipment_form_status: 'restricted' })
+          .eq('id', s.id)
+        restricted++
+      }
+
+      return json({ ok: true, added, updated, restricted }, corsHeaders)
+    }
+
+    // ── student.setNote ───────────────────────────────────────────────────
+    // Sets or clears the manager note on a student. Requires PIN.
+    if (action === 'student.setNote') {
+      const { studentId, note } = body
+      if (!studentId) return json({ error: 'studentId is required' }, corsHeaders)
+      const { error } = await supabase
+        .from('cm_students')
+        .update({ notes: note?.trim() || null })
+        .eq('id', studentId)
+      return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
     }
 
     // ── student.syncPhoto ─────────────────────────────────────────────────

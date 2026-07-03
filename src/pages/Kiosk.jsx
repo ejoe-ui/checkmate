@@ -36,6 +36,18 @@ import { resolveUid } from '../lib/nfc'
 import { supabase } from '../lib/supabase'
 import styles from './Kiosk.module.css'
 
+const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-admin`
+const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+async function kioskAdminCall(action, payload = {}) {
+  const res = await fetch(ADMIN_FN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}` },
+    body: JSON.stringify({ action, ...payload }),
+  })
+  return res.json()
+}
+
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000
 
 const DURATIONS = [
@@ -160,6 +172,13 @@ export default function Kiosk() {
   const [conditionOutNotes, setConditionOutNotes] = useState('')
   const [approvedBy, setApprovedBy]             = useState('')
   const [noFormOverride, setNoFormOverride]     = useState(false)
+
+  // ── Student note editor ───────────────────────────────────────────────────
+  const [showNoteEditor, setShowNoteEditor]   = useState(false)
+  const [noteEditorText, setNoteEditorText]   = useState('')
+  const [noteEditorPin, setNoteEditorPin]     = useState('')
+  const [noteSaving, setNoteSaving]           = useState(false)
+  const [noteSaveMsg, setNoteSaveMsg]         = useState('')
 
   // ── Checkout details ──────────────────────────────────────────────────────
   const [duration, setDuration]       = useState('tomorrow')
@@ -636,7 +655,23 @@ export default function Kiosk() {
                 </div>
                 <FormStatusBadge student={student} />
               </div>
+              <button className={styles.noteEditBtn}
+                onClick={() => {
+                  setNoteEditorText(student.notes ?? '')
+                  setNoteEditorPin('')
+                  setNoteSaveMsg('')
+                  setShowNoteEditor(true)
+                }}>
+                {student.notes ? '📌 Note' : '📝 Note'}
+              </button>
             </div>
+
+            {/* Student note banner */}
+            {student.notes && (
+              <div className={styles.studentNoteBanner}>
+                📌 {student.notes}
+              </div>
+            )}
 
             {/* Form block / temp pass warning */}
             {(() => {
@@ -1082,6 +1117,63 @@ export default function Kiosk() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Note editor overlay (PIN-gated) ─────────────────────────── */}
+      {showNoteEditor && student && (
+        <div className={styles.noteEditorOverlay} onClick={() => setShowNoteEditor(false)}>
+          <div className={styles.noteEditorPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.noteEditorHeader}>
+              <strong>Note — {student.name}</strong>
+              <button className={styles.modalClose} onClick={() => setShowNoteEditor(false)}>✕</button>
+            </div>
+            <textarea
+              className={styles.noteEditorTextarea}
+              value={noteEditorText}
+              onChange={e => setNoteEditorText(e.target.value)}
+              placeholder="Enter a note about this student…"
+              rows={4}
+              autoFocus
+            />
+            <div className={styles.noteEditorRow}>
+              <input
+                className={styles.pinInput}
+                type="password"
+                inputMode="numeric"
+                placeholder="Manager PIN"
+                value={noteEditorPin}
+                onChange={e => setNoteEditorPin(e.target.value)}
+                maxLength={6}
+              />
+              <button
+                className={styles.confirmBtn}
+                disabled={noteSaving || !noteEditorPin}
+                onClick={async () => {
+                  if (noteSaving || !noteEditorPin || !manager) return
+                  setNoteSaving(true)
+                  const { ok, error } = await kioskAdminCall('student.setNote', {
+                    managerId: manager.id,
+                    pin: noteEditorPin,
+                    studentId: student.id,
+                    note: noteEditorText,
+                  })
+                  setNoteSaving(false)
+                  if (error) { setNoteSaveMsg('❌ ' + error); return }
+                  // Update local student state so banner reflects immediately
+                  setStudent(prev => ({ ...prev, notes: noteEditorText.trim() || null }))
+                  setNoteSaveMsg('✓ Saved')
+                  setTimeout(() => { setShowNoteEditor(false); setNoteSaveMsg('') }, 800)
+                }}>
+                {noteSaving ? 'Saving…' : 'Save Note'}
+              </button>
+            </div>
+            {noteSaveMsg && (
+              <div style={{ fontSize: 12, marginTop: 8, color: noteSaveMsg.startsWith('❌') ? '#dc2626' : '#166534' }}>
+                {noteSaveMsg}
+              </div>
+            )}
           </div>
         </div>
       )}
