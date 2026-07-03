@@ -686,7 +686,28 @@ function CheckoutsTab({ manager, pin }) {
     const { data } = await adminCall('checkout.listHistory', {
       managerId: manager.id, pin, issuesOnly, limit: 200,
     })
-    setHistory(data || [])
+    const rows = data || []
+
+    // Generate fresh signed URLs for student photos in history rows
+    const photoFileMap = new Map()
+    rows.forEach(r => {
+      if (r.cm_students?.id && r.cm_students?.photo_file && !photoFileMap.has(r.cm_students.id)) {
+        photoFileMap.set(r.cm_students.id, r.cm_students.photo_file)
+      }
+    })
+    const photoUrlMap = new Map()
+    await Promise.all([...photoFileMap.entries()].map(async ([id, file]) => {
+      const { data: s1 } = await supabase.storage.from('lifetouch-raw').createSignedUrl(file, 3600)
+      if (s1?.signedUrl) { photoUrlMap.set(id, s1.signedUrl); return }
+      const { data: s2 } = await supabase.storage.from('student-photos').createSignedUrl(file, 3600)
+      if (s2?.signedUrl) photoUrlMap.set(id, s2.signedUrl)
+    }))
+
+    setHistory(rows.map(r =>
+      r.cm_students && photoUrlMap.has(r.cm_students.id)
+        ? { ...r, cm_students: { ...r.cm_students, photo_url: photoUrlMap.get(r.cm_students.id), photo_available: true } }
+        : r
+    ))
     setHistoryLoading(false)
   }, [manager, pin])
 
@@ -915,7 +936,7 @@ function CheckoutsTab({ manager, pin }) {
                     onClick={() => setSelectedCheckout({ ...c, _isHistory: true })}>
                     <td>
                       <div className={styles.studentCell}>
-                        <Avatar name={sName} />
+                        <Avatar name={sName} photoUrl={c.cm_students?.photo_url} photoAvailable={!!c.cm_students?.photo_url} />
                         <div>
                           <div><strong>{sName}</strong></div>
                           {sClass && <div className={styles.tdMuted}>{sClass}</div>}
@@ -1675,6 +1696,7 @@ function ReportsTab({ manager, pin }) {
     const enriched = (eq ?? []).map(e => ({ ...e, _checkout: outMap.get(e.id) ?? null }))
     setReportData(enriched)
     setLoading(false)
+    return enriched
   }
 
   // ── Load overdue ──────────────────────────────────────────────────────────
@@ -1692,8 +1714,10 @@ function ReportsTab({ manager, pin }) {
       .is('checked_in_at', null)
       .lt('due_at', now)
       .order('due_at', { ascending: true })
-    setReportData(data ?? [])
+    const rows = data ?? []
+    setReportData(rows)
     setLoading(false)
+    return rows
   }
 
   // ── Print: Checkout report ─────────────────────────────────────────────────
@@ -1751,12 +1775,13 @@ function ReportsTab({ manager, pin }) {
   }
 
   // ── Print: Equipment status ────────────────────────────────────────────────
-  function printEquipmentReport() {
-    if (!reportData) return
-    const categories = [...new Set(reportData.map(e => e.category))].sort()
+  function printEquipmentReport(passedData) {
+    const items = passedData ?? reportData
+    if (!items) return
+    const categories = [...new Set(items.map(e => e.category))].sort()
     const sections = categories.map(cat => {
-      const items = reportData.filter(e => e.category === cat)
-      const rows = items.map(e => {
+      const catItems = items.filter(e => e.category === cat)
+      const rows = catItems.map(e => {
         const co = e._checkout
         const isOut = e.status === 'Checked Out'
         const hasIssue = ['Damaged','Needs Inspection','Maintenance'].includes(e.status)
@@ -1774,7 +1799,7 @@ function ReportsTab({ manager, pin }) {
           <td style="color:#888;font-size:10px">${e.nfc_uid ?? '—'}</td>
         </tr>`
       }).join('')
-      return `<div class="section-title">${cat} (${items.length})</div>
+      return `<div class="section-title">${cat} (${catItems.length})</div>
         <table>
           <thead><tr><th>Name / Serial</th><th>Status</th><th>Checked Out To</th><th>Due</th><th>Condition Notes</th><th>NFC UID</th></tr></thead>
           <tbody>${rows}</tbody>
@@ -1783,14 +1808,15 @@ function ReportsTab({ manager, pin }) {
 
     openPrintWindow('CheckMate — Equipment Status', `
       <h1>Equipment Status Report</h1>
-      <div class="subtitle">RHS Media Department · Generated ${now()} · ${reportData.length} items</div>
+      <div class="subtitle">RHS Media Department · Generated ${now()} · ${items.length} items</div>
       ${sections}`)
   }
 
   // ── Print: Overdue report ──────────────────────────────────────────────────
-  function printOverdueReport() {
-    if (!reportData) return
-    const rows = reportData.map(r => {
+  function printOverdueReport(passedData) {
+    const overdueItems = passedData ?? reportData
+    if (!overdueItems) return
+    const rows = overdueItems.map(r => {
       const daysOverdue = Math.floor((Date.now() - new Date(r.due_at)) / 86400000)
       return `<tr class="overdue">
         <td><strong>${r.cm_students?.name ?? '—'}</strong><br/>
@@ -1807,7 +1833,7 @@ function ReportsTab({ manager, pin }) {
 
     openPrintWindow('CheckMate — Overdue Report', `
       <h1>Overdue Checkouts Report</h1>
-      <div class="subtitle">RHS Media Department · Generated ${now()} · ${reportData.length} overdue item${reportData.length !== 1 ? 's' : ''}</div>
+      <div class="subtitle">RHS Media Department · Generated ${now()} · ${overdueItems.length} overdue item${overdueItems.length !== 1 ? 's' : ''}</div>
       <table>
         <thead><tr><th>Student</th><th>Equipment</th><th>Was Due</th><th>Days Overdue</th><th>Reason</th><th>Teacher</th><th>Approved By</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -1859,7 +1885,7 @@ function ReportsTab({ manager, pin }) {
           </div>
           <div className={styles.reportCardActions} style={{ marginTop: 32 }}>
             <button className={styles.primaryBtn}
-              onClick={async () => { await loadEquipmentReport(); printEquipmentReport() }}
+              onClick={async () => { const d = await loadEquipmentReport(); printEquipmentReport(d) }}
               disabled={loading && activeReport === 'equipment'}>
               {loading && activeReport === 'equipment' ? 'Loading…' : '🖨 Print report'}
             </button>
@@ -1877,7 +1903,7 @@ function ReportsTab({ manager, pin }) {
           </div>
           <div className={styles.reportCardActions} style={{ marginTop: 32 }}>
             <button className={styles.primaryBtn}
-              onClick={async () => { await loadOverdueReport(); printOverdueReport() }}
+              onClick={async () => { const d = await loadOverdueReport(); printOverdueReport(d) }}
               disabled={loading && activeReport === 'overdue'}>
               {loading && activeReport === 'overdue' ? 'Loading…' : '🖨 Print report'}
             </button>
