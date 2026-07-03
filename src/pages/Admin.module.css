@@ -1254,6 +1254,24 @@
 }
 
 /* ── Note textarea (student + equipment detail panels) ────────────────────────*/
+.inlineEditInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1a1a2e;
+  background: #fafafa;
+  margin-top: 4px;
+}
+.inlineEditInput:focus {
+  outline: none;
+  border-color: #4B2FCC;
+  background: #fff;
+}
+
 .noteTextarea {
   width: 100%;
   box-sizing: border-box;

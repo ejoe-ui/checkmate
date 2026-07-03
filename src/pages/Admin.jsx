@@ -1292,6 +1292,7 @@ function StudentsTab({ manager, pin }) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [noteText, setNoteText]         = useState('')
+  const [emailText, setEmailText]       = useState('')
   const [noteSaving, setNoteSaving]     = useState(false)
 
   const load = useCallback(async () => {
@@ -1361,21 +1362,22 @@ function StudentsTab({ manager, pin }) {
   function openStudentDetail(s) {
     setSelectedStudent(s)
     setNoteText(s.notes ?? '')
+    setEmailText(s.email ?? '')
   }
 
-  async function handleSaveNote() {
+  async function handleSaveChanges() {
     if (!selectedStudent || noteSaving) return
     setNoteSaving(true)
-    const { ok, error } = await adminCall('student.setNote', {
+    const { ok, error } = await adminCall('student.update', {
       managerId: manager.id, pin,
       studentId: selectedStudent.id,
-      note: noteText,
+      email: emailText,
+      notes: noteText,
     })
     if (error) { alert('Failed: ' + error); setNoteSaving(false); return }
-    setStudents(prev => prev.map(s =>
-      s.id === selectedStudent.id ? { ...s, notes: noteText.trim() || null } : s
-    ))
-    setSelectedStudent(prev => ({ ...prev, notes: noteText.trim() || null }))
+    const updated = { ...selectedStudent, notes: noteText.trim() || null, email: emailText.trim() || null }
+    setStudents(prev => prev.map(s => s.id === selectedStudent.id ? updated : s))
+    setSelectedStudent(updated)
     setNoteSaving(false)
   }
 
@@ -1559,6 +1561,16 @@ function StudentsTab({ manager, pin }) {
                   <span className={styles.infoLabel}>Photo</span>
                   <span>{selectedStudent.photo_available ? '✓ Synced' : '—'}</span>
                 </div>
+                <div className={styles.fullSpan}>
+                  <span className={styles.infoLabel}>Email</span>
+                  <input
+                    type="email"
+                    className={styles.inlineEditInput}
+                    value={emailText}
+                    onChange={e => setEmailText(e.target.value)}
+                    placeholder="student@rjusd.org"
+                  />
+                </div>
               </div>
 
               <div style={{ marginTop: 20 }}>
@@ -1570,11 +1582,12 @@ function StudentsTab({ manager, pin }) {
                   placeholder="Add a note about this student…"
                   rows={3}
                 />
-                <div className={styles.resolveRow}>
-                  <button className={styles.primaryBtn} onClick={handleSaveNote} disabled={noteSaving}>
-                    {noteSaving ? 'Saving…' : 'Save Note'}
+                <div className={styles.resolveRow} style={{ marginTop: 10 }}>
+                  <button className={styles.primaryBtn} onClick={handleSaveChanges} disabled={noteSaving}>
+                    {noteSaving ? 'Saving…' : 'Save changes'}
                   </button>
-                  {noteText.trim() !== (selectedStudent.notes ?? '') && (
+                  {(noteText.trim() !== (selectedStudent.notes ?? '') ||
+                    emailText.trim() !== (selectedStudent.email ?? '')) && (
                     <span style={{ fontSize: 11, color: '#A8ABB8' }}>Unsaved changes</span>
                   )}
                 </div>

@@ -327,6 +327,20 @@ Deno.serve(async (req) => {
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
     }
 
+    // ── student.update ────────────────────────────────────────────────────
+    // General-purpose student field update (email, notes). Requires PIN.
+    // Only updates fields that are explicitly provided in the payload.
+    if (action === 'student.update') {
+      const { studentId, email, notes } = body
+      if (!studentId) return json({ error: 'studentId is required' }, corsHeaders)
+      const fields: Record<string, unknown> = {}
+      if (email  !== undefined) fields.email = email?.trim()  || null
+      if (notes  !== undefined) fields.notes = notes?.trim()  || null
+      if (Object.keys(fields).length === 0) return json({ ok: true }, corsHeaders)
+      const { error } = await supabase.from('cm_students').update(fields).eq('id', studentId)
+      return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+    }
+
     // ── student.syncPhoto ─────────────────────────────────────────────────
     // Copies photo_file from PassAble's students table to cm_students, matched by nfc_uid.
     // Photos live in the lifetouch-raw bucket; signed URLs are generated at list time.
