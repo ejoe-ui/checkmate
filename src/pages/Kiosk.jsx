@@ -1139,10 +1139,10 @@ export default function Kiosk() {
             />
             <div className={styles.noteEditorRow}>
               <input
-                className={styles.pinInput}
+                className={styles.noteEditorPinInput}
                 type="password"
                 inputMode="numeric"
-                placeholder="Manager PIN"
+                placeholder="PIN"
                 value={noteEditorPin}
                 onChange={e => setNoteEditorPin(e.target.value)}
                 maxLength={6}
