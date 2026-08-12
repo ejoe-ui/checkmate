@@ -1974,19 +1974,27 @@ function StudentsTab({ manager, pin }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // MANAGERS TAB
 // ═══════════════════════════════════════════════════════════════════════════
-function ManagersTab() {
+function ManagersTab({ manager, pin }) {
   const [managers, setManagers] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [editing, setEditing]   = useState(null) // null = closed, {} = new, obj = edit
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true)
     adminCall('manager.list').then(({ data }) => {
       if (data) setManagers(data)
       setLoading(false)
     })
   }, [])
 
+  useEffect(() => { load() }, [load])
+
   return (
     <div className={styles.content}>
+      <div className={styles.toolbar}>
+        <span />
+        <button className={styles.primaryBtn} onClick={() => setEditing({})}>+ Add manager</button>
+      </div>
       {loading ? (
         <div className={styles.emptyState}><span className={styles.emptyIcon}>⏳</span><p className={styles.emptyTitle}>Loading…</p></div>
       ) : (
@@ -1997,6 +2005,7 @@ function ManagersTab() {
                 <th>Name</th>
                 <th>NFC UID</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -2009,6 +2018,9 @@ function ManagersTab() {
                       {m.active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
+                  <td>
+                    <button className={styles.secondaryBtn} onClick={() => setEditing(m)}>Edit</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2016,8 +2028,95 @@ function ManagersTab() {
         </div>
       )}
       <p style={{ fontSize: 11, color: '#A8ABB8', marginTop: 14 }}>
-        To add or remove managers, use Supabase → Table Editor → cm_managers.
+        Deactivate a manager instead of deleting to keep their checkout history intact.
       </p>
+
+      {editing !== null && (
+        <ManagerModal
+          manager={manager} pin={pin}
+          editing={editing.id ? editing : null}
+          onSave={() => { setEditing(null); load() }}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ManagerModal({ manager, pin, editing, onSave, onClose }) {
+  const isNew = !editing
+  const [form, setForm] = useState({
+    name: editing?.name ?? '',
+    nfcUid: editing?.nfc_uid ?? '',
+    newPin: '',
+    active: editing?.active ?? true,
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  async function handleSave() {
+    if (!form.name.trim()) { setError('Name is required'); return }
+    if (form.newPin && !/^\d{4,6}$/.test(form.newPin)) { setError('PIN must be 4–6 digits'); return }
+    if (isNew && !form.newPin) { setError('PIN is required'); return }
+    setSaving(true); setError('')
+    const action = isNew ? 'manager.add' : 'manager.update'
+    const payload = isNew
+      ? { managerId: manager.id, pin, name: form.name, newPin: form.newPin, nfcUid: form.nfcUid }
+      : { managerId: manager.id, pin, targetManagerId: editing.id, name: form.name, nfcUid: form.nfcUid, newPin: form.newPin || undefined, active: form.active }
+    const { data, error: err } = await adminCall(action, payload)
+    setSaving(false)
+    if (err) { setError(err); return }
+    onSave(data)
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <button className={styles.modalClose} onClick={onClose}>✕</button>
+        <h2 className={styles.modalTitle}>{isNew ? 'Add manager' : 'Edit manager'}</h2>
+
+        <div className={styles.formGrid}>
+          <div className={`${styles.formField} ${styles.fullWidth}`}>
+            <label className={styles.formLabel}>Name *</label>
+            <input className={styles.formInput} value={form.name} autoFocus
+              onChange={e => set('name', e.target.value)} placeholder="First Last" />
+          </div>
+          <div className={`${styles.formField} ${styles.fullWidth}`}>
+            <label className={styles.formLabel}>NFC UID</label>
+            <input className={styles.formInput} value={form.nfcUid}
+              onChange={e => set('nfcUid', e.target.value)}
+              placeholder="Tap a badge or enter the UID — leave blank if none yet" />
+          </div>
+          <div className={styles.formField}>
+            <label className={styles.formLabel}>{isNew ? 'PIN *' : 'New PIN'}</label>
+            <input className={styles.formInput} inputMode="numeric" maxLength={6} value={form.newPin}
+              onChange={e => set('newPin', e.target.value.replace(/\D/g, ''))}
+              placeholder={isNew ? '4–6 digits' : 'Leave blank to keep current'} />
+          </div>
+          {!isNew && (
+            <div className={styles.formField}>
+              <label className={styles.formLabel}>Status</label>
+              <select className={styles.formSelect} value={form.active ? 'active' : 'inactive'}
+                onChange={e => set('active', e.target.value === 'active')}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        {error && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>{error}</p>}
+
+        <div className={styles.modalActions}>
+          <button className={styles.secondaryBtn} onClick={onClose}>Cancel</button>
+          <button className={styles.primaryBtn} onClick={handleSave}
+            disabled={saving || !form.name.trim()}>
+            {saving ? 'Saving…' : isNew ? 'Add manager' : 'Save changes'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2493,7 +2592,7 @@ export default function Admin() {
             {tab === 'equipment' && <EquipmentTab manager={manager} pin={pin} />}
             {tab === 'checkouts' && <CheckoutsTab manager={manager} pin={pin} />}
             {tab === 'students'  && <StudentsTab  manager={manager} pin={pin} />}
-            {tab === 'managers'  && <ManagersTab />}
+            {tab === 'managers'  && <ManagersTab manager={manager} pin={pin} />}
             {tab === 'reports'   && <ReportsTab manager={manager} pin={pin} />}
           </div>
         </>
