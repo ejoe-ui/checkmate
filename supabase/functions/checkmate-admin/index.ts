@@ -630,7 +630,43 @@ Deno.serve(async (req) => {
       return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
     }
 
-    return json({ error: 'Unknown action: ' + action }, corsHeaders)
+      // ── manager.add ──────────────────────────────────────────────────────
+  // Creates a new manager account. Requires an authenticated manager (PIN).
+  if (action === 'manager.add') {
+    const { name, newPin, nfcUid } = body
+    if (!name?.trim()) return json({ error: 'Name is required' }, corsHeaders)
+    if (!newPin || !/^\d{4,6}$/.test(newPin)) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
+    const { data, error } = await supabase
+      .from('cm_managers')
+      .insert({
+        name: name.trim(),
+        pin_hash: newPin,
+        nfc_uid: nfcUid?.trim() || null,
+        active: true,
+      })
+      .select()
+      .single()
+    return error ? json({ error: error.message }, corsHeaders) : json({ data }, corsHeaders)
+  }
+
+  // ── manager.update ───────────────────────────────────────────────────
+  // Updates an existing manager's name, NFC UID, PIN, and/or active status.
+  if (action === 'manager.update') {
+    const { targetManagerId, name, nfcUid, newPin, active } = body
+    if (!targetManagerId) return json({ error: 'targetManagerId is required' }, corsHeaders)
+    const fields: Record<string, unknown> = {}
+    if (name !== undefined) fields.name = name?.trim() || null
+    if (nfcUid !== undefined) fields.nfc_uid = nfcUid?.trim() || null
+    if (newPin !== undefined && newPin !== '') {
+      if (!/^\d{4,6}$/.test(newPin)) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
+      fields.pin_hash = newPin
+    }
+    if (active !== undefined) fields.active = !!active
+    if (Object.keys(fields).length === 0) return json({ ok: true }, corsHeaders)
+    const { error } = await supabase.from('cm_managers').update(fields).eq('id', targetManagerId)
+    return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+  }
+return json({ error: 'Unknown action: ' + action }, corsHeaders)
 
   } catch (err) {
     return json({ error: String(err) }, corsHeaders)
