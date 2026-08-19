@@ -157,6 +157,9 @@ export default function Kiosk() {
   const [state, setState]                   = useState('locked')
   const [manager, setManager]               = useState(null)
   const [pin, setPin]                       = useState('')
+    const [managerList, setManagerList]       = useState([])
+    const [manualPick, setManualPick]         = useState(false)
+    const [manualManagerId, setManualManagerId] = useState('')
   const [student, setStudent]               = useState(null)
   const [cart, setCart]                     = useState([])
   const [kitItem, setKitItem]               = useState(null)
@@ -224,6 +227,13 @@ export default function Kiosk() {
       if (data) setTeachers(data)
     })
   }, [])
+
+    // ── Load active managers (for manual "enter code" login, no badge needed) ──
+    useEffect(() => {
+          supabase.from('cm_managers').select('id, name').eq('active', true).order('name').then(({ data }) => {
+                  if (data) setManagerList(data)
+          })
+    }, [])
 
   // ── Live log + history ────────────────────────────────────────────────────
   const loadLiveData = useCallback(async () => {
@@ -302,6 +312,7 @@ export default function Kiosk() {
     setOverrideNeeded(false); setOverridePin(''); setReturnPending(null); setReturnCheckoutRecord(null)
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
     setConditionOut('good'); setConditionOutNotes(''); setApprovedBy(''); setNoFormOverride(false)
+        setManualPick(false); setManualManagerId('')
   }, [])
 
   const bumpSession = useCallback(() => {
@@ -347,7 +358,9 @@ export default function Kiosk() {
 
     if (state === 'locked') {
       if (result.type === 'manager') {
-        setManager(result.data); setState('manager_pin')
+        // NFC tap alone fully authenticates — no PIN step required.
+                  setManager(result.data); setApprovedBy(result.data.name)
+                  setMode('checkout'); setState('scan_student')
       } else {
         setMessage('Tap manager badge first')
         setTimeout(() => setMessage(''), 2000)
@@ -671,7 +684,32 @@ export default function Kiosk() {
             <div className={styles.icon}>🔒</div>
             <h1>Tap manager badge to begin</h1>
             {message && <p className={styles.flashMsg}>{message}</p>}
-          </div>
+                      {!manualPick ? (
+            <button
+              onClick={() => setManualPick(true)}
+              style={{ marginTop: 16, background: 'none', border: 'none', color: '#7C3AED', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
+              Enter code instead
+            </button>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const mgr = managerList.find(m => m.id === manualManagerId)
+                if (!mgr) return
+                setManager(mgr); setManualPick(false); setManualManagerId(''); setState('manager_pin')
+              }}
+              className={styles.pinForm} style={{ marginTop: 16 }}>
+              <select
+                className={styles.pinInput}
+                value={manualManagerId}
+                onChange={e => setManualManagerId(e.target.value)}>
+                <option value="">Select manager…</option>
+                {managerList.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <button type="submit" className={styles.primaryBtn} disabled={!manualManagerId}>Next</button>
+            </form>
+                    )}
+        </div>
         )}
 
         {/* MANAGER PIN */}
