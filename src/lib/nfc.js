@@ -7,7 +7,7 @@ import { supabase } from './supabase'
 // so a raw decimal scan from the kiosk reader must also be tried as hex or
 // student lookups will never match. Mirrors the fix applied in
 // hall-pass/app/kiosk/page.jsx and hall-pass/app/wire/page.jsx.
-function toHexUid(raw) {
+export function toHexUid(raw) {
   const trimmed = String(raw || '').trim()
   if (!trimmed) return null
   if (/[a-fA-F]/.test(trimmed)) {
