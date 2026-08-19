@@ -7,7 +7,8 @@
   ─────
   1. PIN verify
      { managerId, pin }
-     → validates PIN, returns { ok: true }
+     → validates PIN OR NFC UID (either credential alone is sufficient),
+       returns { ok: true }
 
   2. Checkout
      { managerId, pin:"SESSION", studentId, equipmentIds[], dueAt,
@@ -45,14 +46,17 @@ Deno.serve(async (req) => {
     if (!action && pin !== 'SESSION') {
       const { data: mgr, error } = await supabase
         .from('cm_managers')
-        .select('id, pin_hash, active')
+        .select('id, pin_hash, nfc_uid, active')
         .eq('id', managerId)
         .single()
 
       if (error || !mgr) return json({ error: 'Manager not found' }, corsHeaders)
       if (!mgr.active)   return json({ error: 'Manager account is inactive' }, corsHeaders)
+      // Either credential fully authenticates on its own — a typed code or a
+      // tapped NFC badge, no second factor required.
       const storedPin = (mgr.pin_hash ?? '').replace(/^TEMP:/, '')
-      if (storedPin !== pin) return json({ error: 'Incorrect PIN' }, corsHeaders)
+      const authOk = (!!storedPin && storedPin === pin) || (!!mgr.nfc_uid && mgr.nfc_uid === pin)
+      if (!authOk) return json({ error: 'Incorrect PIN' }, corsHeaders)
 
       return json({ ok: true }, corsHeaders)
     }
