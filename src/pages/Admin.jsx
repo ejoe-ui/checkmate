@@ -6,7 +6,7 @@
   Auth: manager PIN gate (same managers as kiosk)
 */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { toHexUid, resolveUid } from '../lib/nfc'
 import NfcListener from '../components/NfcListener'
@@ -2140,6 +2140,8 @@ function AuthGate({ onAuth }) {
   const [error, setError]         = useState('')
   const [loading, setLoading]     = useState(false)
   const [pinFocused, setPinFocused] = useState(false)
+  const loadingRef = useRef(loading)
+  loadingRef.current = loading
 
   useEffect(() => {
     supabase.from('cm_managers').select('id, name').eq('active', true).order('name')
@@ -2170,8 +2172,11 @@ function AuthGate({ onAuth }) {
   }
 
     // NFC badge tap fully authenticates on its own — mirrors Kiosk's login flow.
-    async function handleNfcScan(uid) {
-      if (loading) return
+    // Memoized so NfcListener's props stay stable while the user types a PIN —
+    // an unstable onScan reference was causing NfcListener's focus effect to
+    // re-run on every keystroke, occasionally re-stealing focus from the PIN field.
+    const handleNfcScan = useCallback(async (uid) => {
+      if (loadingRef.current) return
       const result = await resolveUid(uid)
       if (result.type !== 'manager') {
         setError('Badge not recognized')
@@ -2196,7 +2201,7 @@ function AuthGate({ onAuth }) {
         setError('Connection error')
       }
       setLoading(false)
-    }
+    }, [managers, onAuth])
 
   return (
     <div className={styles.body}>
