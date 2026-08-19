@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { toHexUid } from '../lib/nfc'
 import styles from './Admin.module.css'
 
 const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-admin`
@@ -170,7 +171,11 @@ function EquipmentTab({ manager, pin }) {
   }), [equipment])
 
   async function handleSave(item) {
-    const { error } = await adminCall('equipment.upsert', { managerId: manager.id, pin, equipment: item })
+    // Normalize the scanned/typed UID to canonical uppercase hex — the reader
+    // may emit raw decimal, and equipment tags must match the hex form checked
+    // at kiosk scan time (see lib/nfc.js resolveUid).
+    const nfc_uid = item.nfc_uid?.trim() ? (toHexUid(item.nfc_uid) || item.nfc_uid.trim().toUpperCase()) : item.nfc_uid
+    const { error } = await adminCall('equipment.upsert', { managerId: manager.id, pin, equipment: { ...item, nfc_uid } })
     if (error) { alert('Save failed: ' + error); return }
     setEditItem(null)
     load()
