@@ -48,14 +48,16 @@ Deno.serve(async (req) => {
     if (isWrite) {
       const { data: mgr } = await supabase
         .from('cm_managers')
-        .select('pin_hash, active')
+        .select('pin_hash, nfc_uid, active')
         .eq('id', managerId)
         .single()
       if (!mgr || !mgr.active) return json({ error: 'Unauthorized' }, corsHeaders)
       const isKioskSession = KIOSK_ACTIONS.has(action) && pin === 'SESSION'
       if (!isKioskSession) {
+        // Either credential fully authenticates — a typed code or a tapped NFC badge.
         const storedPin = (mgr.pin_hash ?? '').replace(/^TEMP:/, '')
-        if (storedPin !== pin) return json({ error: 'Unauthorized' }, corsHeaders)
+        const authOk = (!!storedPin && storedPin === pin) || (!!mgr.nfc_uid && mgr.nfc_uid === pin)
+        if (!authOk) return json({ error: 'Unauthorized' }, corsHeaders)
       }
     }
 
@@ -635,13 +637,16 @@ Deno.serve(async (req) => {
   if (action === 'manager.add') {
     const { name, newPin, nfcUid } = body
     if (!name?.trim()) return json({ error: 'Name is required' }, corsHeaders)
-    if (!newPin || !/^\d{4,6}$/.test(newPin)) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
+    const pinOk = !!newPin && /^\d{4,6}$/.test(newPin)
+    const nfcOk = !!nfcUid?.trim()
+    if (newPin && !pinOk) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
+    if (!pinOk && !nfcOk) return json({ error: 'Enter a PIN or scan/enter an NFC badge' }, corsHeaders)
     const { data, error } = await supabase
       .from('cm_managers')
       .insert({
         name: name.trim(),
-        pin_hash: newPin,
-        nfc_uid: nfcUid?.trim() || null,
+        pin_hash: pinOk ? newPin : null,
+        nfc_uid: nfcUid?.trim() ? nfcUid.trim().toUpperCase() : null,
         active: true,
       })
       .select()
@@ -656,7 +661,7 @@ Deno.serve(async (req) => {
     if (!targetManagerId) return json({ error: 'targetManagerId is required' }, corsHeaders)
     const fields: Record<string, unknown> = {}
     if (name !== undefined) fields.name = name?.trim() || null
-    if (nfcUid !== undefined) fields.nfc_uid = nfcUid?.trim() || null
+    if (nfcUid !== undefined) fields.nfc_uid = nfcUid?.trim() ? nfcUid.trim().toUpperCase() : null
     if (newPin !== undefined && newPin !== '') {
       if (!/^\d{4,6}$/.test(newPin)) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
       fields.pin_hash = newPin
