@@ -8,7 +8,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { toHexUid } from '../lib/nfc'
+import { toHexUid, resolveUid } from '../lib/nfc'
+import NfcListener from '../components/NfcListener'
 import styles from './Admin.module.css'
 
 const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-admin`
@@ -2064,12 +2065,15 @@ function ManagerModal({ manager, pin, editing, onSave, onClose }) {
   async function handleSave() {
     if (!form.name.trim()) { setError('Name is required'); return }
     if (form.newPin && !/^\d{4,6}$/.test(form.newPin)) { setError('PIN must be 4–6 digits'); return }
-    if (isNew && !form.newPin) { setError('PIN is required'); return }
-    setSaving(true); setError('')
-    const action = isNew ? 'manager.add' : 'manager.update'
-    const payload = isNew
-      ? { managerId: manager.id, pin, name: form.name, newPin: form.newPin, nfcUid: form.nfcUid }
-      : { managerId: manager.id, pin, targetManagerId: editing.id, name: form.name, nfcUid: form.nfcUid, newPin: form.newPin || undefined, active: form.active }
+          if (isNew && !form.newPin && !form.nfcUid.trim()) { setError('Enter a PIN or scan/enter an NFC badge'); return }
+      setSaving(true); setError('')
+      // Normalize the scanned/typed UID to canonical uppercase hex, matching the
+      // form used for equipment and students so it will actually match a tap.
+      const nfcUid = form.nfcUid.trim() ? (toHexUid(form.nfcUid) || form.nfcUid.trim().toUpperCase()) : form.nfcUid
+      const action = isNew ? 'manager.add' : 'manager.update'
+      const payload = isNew
+        ? { managerId: manager.id, pin, name: form.name, newPin: form.newPin, nfcUid }
+        : { managerId: manager.id, pin, targetManagerId: editing.id, name: form.name, nfcUid, newPin: form.newPin || undefined, active: form.active }
     const { data, error: err } = await adminCall(action, payload)
     setSaving(false)
     if (err) { setError(err); return }
@@ -2164,12 +2168,42 @@ function AuthGate({ onAuth }) {
     setLoading(false)
   }
 
+    // NFC badge tap fully authenticates on its own — mirrors Kiosk's login flow.
+    async function handleNfcScan(uid) {
+      if (loading) return
+      const result = await resolveUid(uid)
+      if (result.type !== 'manager') {
+        setError('Badge not recognized')
+        setTimeout(() => setError(''), 2000)
+        return
+      }
+      const mgr = result.data
+      setLoading(true); setError('')
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-checkout`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ANON_KEY}` },
+            body: JSON.stringify({ managerId: mgr.id, pin: mgr.nfc_uid, studentId: null, equipmentIds: [] }),
+          }
+        )
+        const json = await res.json()
+        if (json.error) { setError(json.error); setLoading(false); return }
+        onAuth(mgr, mgr.nfc_uid)
+      } catch (err) {
+        setError('Connection error')
+      }
+      setLoading(false)
+    }
+
   return (
     <div className={styles.body}>
+        <NfcListener onScan={handleNfcScan} disabled={loading} />
       <div className={styles.authGate}>
         <span style={{ fontSize: 40 }}>🔒</span>
         <h2>Admin Access</h2>
-        <p>Enter your manager credentials to continue.</p>
+        <p>Tap your manager badge, or select your name and enter your PIN.</p>
         <form onSubmit={handleSubmit}>
           <div className={styles.authRow}>
             <select className={styles.authSelect} value={managerId}
