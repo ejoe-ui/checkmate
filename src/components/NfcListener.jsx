@@ -13,9 +13,15 @@ export default function NfcListener({ onScan, disabled = false }) {
     if (uid.length >= 4) onScan(uid)
   }, [onScan])
 
+  // Only steal focus on the true->false transition of `disabled`, not on every
+  // effect re-run (an unstable `onScan`/`flush` identity from the parent used to
+  // re-run this effect on every keystroke, occasionally re-focusing the hidden
+  // input mid-typing and swallowing characters meant for a visible PIN field).
+  const wasDisabledRef = useRef(disabled)
+
   useEffect(() => {
     const el = inputRef.current
-    if (!el || disabled) return
+    if (!el) return
 
     const onKeyDown = (e) => {
       if (e.key === 'Enter') { flush(); return }
@@ -28,8 +34,16 @@ export default function NfcListener({ onScan, disabled = false }) {
       bufferRef.current += e.key
     }
 
+    if (disabled) {
+      wasDisabledRef.current = true
+      return
+    }
+
     el.addEventListener('keydown', onKeyDown)
-    el.focus()
+    if (wasDisabledRef.current || document.activeElement === document.body) {
+      el.focus()
+    }
+    wasDisabledRef.current = false
     return () => el.removeEventListener('keydown', onKeyDown)
   }, [disabled, flush])
 
