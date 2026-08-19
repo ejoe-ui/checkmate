@@ -1565,7 +1565,7 @@ function AddStudentModal({ manager, pin, onSave, onClose }) {
       name:        form.name,
       email:       form.email,
       classGroup:  form.classGroup,
-      nfcUid:      form.nfcUid,
+      nfcUid:      form.nfcUid?.trim() ? (toHexUid(form.nfcUid) || form.nfcUid.trim().toUpperCase()) : form.nfcUid,
       formStatus:  grantTempPass ? 'temp_pass' : form.formStatus,
       grantTempPass,
     })
