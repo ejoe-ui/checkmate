@@ -176,7 +176,14 @@ function EquipmentTab({ manager, pin }) {
     // may emit raw decimal, and equipment tags must match the hex form checked
     // at kiosk scan time (see lib/nfc.js resolveUid).
     const nfc_uid = item.nfc_uid?.trim() ? (toHexUid(item.nfc_uid) || item.nfc_uid.trim().toUpperCase()) : item.nfc_uid
-    const { error } = await adminCall('equipment.upsert', { managerId: manager.id, pin, equipment: { ...item, nfc_uid } })
+    // An empty "Replacement cost" field arrives here as '' — Postgres's numeric
+    // column rejects that outright ("invalid input syntax for type numeric"),
+    // so blank/invalid values must become null, not an empty string.
+    const rawCost = item.replacement_cost
+    const replacement_cost = rawCost === '' || rawCost === undefined || rawCost === null || Number.isNaN(Number(rawCost))
+      ? null
+      : Number(rawCost)
+    const { error } = await adminCall('equipment.upsert', { managerId: manager.id, pin, equipment: { ...item, nfc_uid, replacement_cost } })
     if (error) { alert('Save failed: ' + error); return }
     setEditItem(null)
     load()
@@ -2646,4 +2653,4 @@ export default function Admin() {
       )}
     </div>
   )
-
+}
