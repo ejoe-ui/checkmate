@@ -1674,6 +1674,8 @@ function StudentsTab({ manager, pin }) {
   const [noteText, setNoteText]         = useState('')
   const [emailText, setEmailText]       = useState('')
   const [noteSaving, setNoteSaving]     = useState(false)
+  const [nfcUidText, setNfcUidText]     = useState('')
+  const [overwriteNfc, setOverwriteNfc] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1730,7 +1732,7 @@ function StudentsTab({ manager, pin }) {
 
   async function handleSyncFromPassable() {
     setSyncingPassable(true); setSyncMsg('')
-    const { ok, added, updated, restricted, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin })
+    const { ok, added, updated, restricted, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin, overwriteNfcUid: overwriteNfc })
     setSyncingPassable(false)
     if (error) { setSyncMsg('Sync failed: ' + error); return }
     const parts = [`${added} added`, `${updated} updated`]
@@ -1743,6 +1745,7 @@ function StudentsTab({ manager, pin }) {
     setSelectedStudent(s)
     setNoteText(s.notes ?? '')
     setEmailText(s.email ?? '')
+    setNfcUidText(s.nfc_uid ?? '')
   }
 
   async function handleSaveChanges() {
@@ -1753,9 +1756,10 @@ function StudentsTab({ manager, pin }) {
       studentId: selectedStudent.id,
       email: emailText,
       notes: noteText,
+      nfcUid: nfcUidText,
     })
     if (error) { alert('Failed: ' + error); setNoteSaving(false); return }
-    const updated = { ...selectedStudent, notes: noteText.trim() || null, email: emailText.trim() || null }
+    const updated = { ...selectedStudent, notes: noteText.trim() || null, email: emailText.trim() || null, nfc_uid: nfcUidText.trim() || null }
     setStudents(prev => prev.map(s => s.id === selectedStudent.id ? updated : s))
     setSelectedStudent(updated)
     setNoteSaving(false)
@@ -1799,6 +1803,10 @@ function StudentsTab({ manager, pin }) {
           {syncingPassable ? 'Syncing…' : 'Sync students from PassAble'}
         </button>
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8ABB8', margin: '6px 0 0' }}>
+        <input type="checkbox" checked={overwriteNfc} onChange={e => setOverwriteNfc(e.target.checked)} />
+        Overwrite existing NFC UIDs (use after a mass card reissue)
+      </label>
       <div className={styles.syncBanner} style={{ marginTop: 8 }}>
         <span>📸 Student photos sync from PassAble Lifetouch records.</span>
         <button className={styles.secondaryBtn} onClick={handleSyncAllPhotos} disabled={syncing}>
@@ -1924,7 +1932,13 @@ function StudentsTab({ manager, pin }) {
               <div className={styles.infoGrid}>
                 <div>
                   <span className={styles.infoLabel}>NFC UID</span>
-                  <span className={styles.tdMono}>{selectedStudent.nfc_uid || '—'}</span>
+                  <input
+                    type="text"
+                    className={styles.inlineEditInput}
+                    value={nfcUidText}
+                    onChange={e => setNfcUidText(e.target.value)}
+                    placeholder="Tap a card or type UID"
+                  />
                 </div>
                 <div>
                   <span className={styles.infoLabel}>Equipment form</span>
@@ -1971,7 +1985,8 @@ function StudentsTab({ manager, pin }) {
                     {noteSaving ? 'Saving…' : 'Save changes'}
                   </button>
                   {(noteText.trim() !== (selectedStudent.notes ?? '') ||
-                    emailText.trim() !== (selectedStudent.email ?? '')) && (
+                    emailText.trim() !== (selectedStudent.email ?? '') ||
+                    nfcUidText.trim() !== (selectedStudent.nfc_uid ?? '')) && (
                     <span style={{ fontSize: 11, color: '#A8ABB8' }}>Unsaved changes</span>
                   )}
                 </div>
