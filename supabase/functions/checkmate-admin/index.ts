@@ -292,6 +292,7 @@ Deno.serve(async (req) => {
     // - Existing students: name/grade/class/photo updated; nfc_uid NEVER overwritten
     //   if cm_students already has one (manually assigned UIDs are protected)
     if (action === 'student.syncFromPassAble') {
+      const { overwriteNfcUid } = body
       const { data: passable } = await supabase
         .from('students')
         .select('id, nfc_uid, full_name, grade, period, photo_file, photo_url')
@@ -320,8 +321,9 @@ Deno.serve(async (req) => {
             photo_file:     p.photo_file || null,
             last_synced_at: now,
           }
-          // Only sync nfc_uid from PassAble if CheckMate doesn't have one yet
-          if (!ex.nfc_uid && p.nfc_uid) {
+          // Only sync nfc_uid from PassAble if CheckMate doesn't have one yet —
+          // unless overwriteNfcUid=true is passed (e.g. after a mass card reissue).
+          if (p.nfc_uid && (overwriteNfcUid || !ex.nfc_uid)) {
             updateFields.nfc_uid = p.nfc_uid
           }
           await supabase.from('cm_students').update(updateFields).eq('id', ex.id)
@@ -374,14 +376,29 @@ Deno.serve(async (req) => {
     }
 
     // ── student.update ────────────────────────────────────────────────────
-    // General-purpose student field update (email, notes). Requires PIN.
+    // General-purpose student field update (email, notes, nfc_uid). Requires PIN.
     // Only updates fields that are explicitly provided in the payload.
+    // nfc_uid is a direct manual edit, so (unlike syncFromPassAble) it always
+    // wins — but it's checked for duplicates against other students first.
     if (action === 'student.update') {
-      const { studentId, email, notes } = body
+      const { studentId, email, notes, nfcUid } = body
       if (!studentId) return json({ error: 'studentId is required' }, corsHeaders)
       const fields: Record<string, unknown> = {}
       if (email  !== undefined) fields.email = email?.trim()  || null
       if (notes  !== undefined) fields.notes = notes?.trim()  || null
+      if (nfcUid !== undefined) {
+        const trimmed = nfcUid?.trim() || null
+        if (trimmed) {
+          const { data: dupe } = await supabase
+            .from('cm_students')
+            .select('id, name')
+            .eq('nfc_uid', trimmed)
+            .neq('id', studentId)
+            .maybeSingle()
+          if (dupe) return json({ error: `That card is already assigned to ${dupe.name}.` }, corsHeaders)
+        }
+        fields.nfc_uid = trimmed
+      }
       if (Object.keys(fields).length === 0) return json({ ok: true }, corsHeaders)
       const { error } = await supabase.from('cm_students').update(fields).eq('id', studentId)
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
