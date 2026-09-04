@@ -1164,6 +1164,31 @@ function CheckoutsTab({ manager, pin }) {
     setSaving(false)
   }
 
+  // Manually closes an open checkout when its equipment's NFC tag is dead
+  // or was replaced, so it can no longer be scanned at the kiosk to trigger
+  // a normal Return. Bypasses the scan entirely — closes by checkout id.
+  async function forceCheckIn() {
+    if (saving) return
+    const ok = confirm(
+      `Force check in "${selectedCheckout.equipment_name}" for ${selectedCheckout.student_name}?\n\n` +
+      `This skips the normal NFC-tag scan and should only be used when the equipment's tag can't be read. ` +
+      `The item will be marked Available and this checkout closed.`
+    )
+    if (!ok) return
+    setSaving(true)
+    const res = await adminCall('checkout.forceReturn', {
+      managerId: manager.id, pin,
+      checkoutId: selectedCheckout.id,
+    })
+    setSaving(false)
+    if (res?.error) {
+      alert(res.error)
+      return
+    }
+    setSelectedCheckout(null)
+    await load()
+  }
+
   return (
     <div className={styles.content}>
       {showManualEntry && (
@@ -1462,6 +1487,13 @@ function CheckoutsTab({ manager, pin }) {
                 onClick={() => { setNoteType('other'); setShowNoteForm(true) }}
                 disabled={saving}>
                 📝 Add note
+              </button>
+              <button className={styles.quickActionBtn}
+                style={{ borderColor: '#fca5a5', color: '#dc2626' }}
+                onClick={forceCheckIn}
+                disabled={saving}
+                title="Use only when the equipment's NFC tag can't be scanned at the kiosk">
+                🔓 Force check-in
               </button>
             </div>
             )}
