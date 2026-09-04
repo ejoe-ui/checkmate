@@ -18,6 +18,9 @@
 
   manager.list          → all managers
 
+  checkout.forceReturn  → manually close an open checkout by id (bypasses
+                           NFC scan — for dead/replaced equipment tags)
+
   All write actions require { managerId, pin } for verification.
 */
 
@@ -638,6 +641,43 @@ Deno.serve(async (req) => {
       }
 
       return json({ ok: true, records: results }, corsHeaders)
+    }
+
+    // ── checkout.forceReturn ─────────────────────────────────────────────
+    // Manually closes an open checkout when the equipment's NFC tag has
+    // failed or been replaced and can no longer be scanned at the kiosk to
+    // trigger a normal Return. Closes by checkout id directly instead of
+    // looking the checkout up by equipment_id.
+    if (action === 'checkout.forceReturn') {
+      const { checkoutId, notes } = body
+      if (!checkoutId) return json({ error: 'checkoutId is required' }, corsHeaders)
+
+      const { data: checkout, error: findErr } = await supabase
+        .from('cm_checkouts')
+        .select('id, equipment_id, checked_in_at')
+        .eq('id', checkoutId)
+        .single()
+      if (findErr || !checkout) return json({ error: 'Checkout not found' }, corsHeaders)
+      if (checkout.checked_in_at) return json({ error: 'Checkout is already closed' }, corsHeaders)
+
+      const { error: returnErr } = await supabase
+        .from('cm_checkouts')
+        .update({
+          checked_in_at:          new Date().toISOString(),
+          returned_by_manager_id: managerId,
+          condition_in:           'returned_ok',
+          condition_notes:        notes || 'Force-checked-in by admin — equipment NFC tag could not be scanned.',
+        })
+        .eq('id', checkoutId)
+      if (returnErr) return json({ error: returnErr.message }, corsHeaders)
+
+      const { error: eqErr } = await supabase
+        .from('cm_equipment')
+        .update({ status: 'Available' })
+        .eq('id', checkout.equipment_id)
+      if (eqErr) return json({ error: eqErr.message }, corsHeaders)
+
+      return json({ ok: true }, corsHeaders)
     }
 
     // ── manager.list ──────────────────────────────────────────────────────
