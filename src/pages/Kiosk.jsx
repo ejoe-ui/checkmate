@@ -39,6 +39,49 @@ import styles from './Kiosk.module.css'
 const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-admin`
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+// ── Receipt printing — 72mm thermal-printer width, same window.print()
+// pattern PassAble uses for hall passes. Works with any receipt printer
+// installed as a normal system printer (Star, Epson, etc.) — no SDK. ──
+const RECEIPT_STYLES = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 72mm; margin: 0 auto; }
+  body { font-family: 'Courier New', monospace; font-size: 12px; padding: 8px 10px; }
+  .center { text-align: center; }
+  .divider { border-top: 1px dashed #000; margin: 6px 0; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .title { font-size: 16px; font-weight: bold; }
+  .sub { font-size: 11px; color: #333; margin-bottom: 4px; }
+  .tag { display: inline-block; border: 2px solid #000; padding: 2px 8px; font-weight: bold; font-size: 13px; letter-spacing: 0.05em; margin: 4px 0; }
+  .footer { font-size: 11px; color: #444; margin-top: 10px; text-align: center; }
+`
+
+function printReceipt(r) {
+  if (!r) return
+  const win = window.open('', '_blank', 'width=420,height=600')
+  const itemRows = (r.items || []).map(it => `
+    <div class="row"><span>${it.name}</span><span>${it.category || ''}</span></div>
+  `).join('')
+  const time = new Date(r.time)
+  win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
+    <style>${RECEIPT_STYLES}</style></head><body>
+    <div class="center title">RHS CHECKMATE</div>
+    <div class="center sub">${time.toLocaleDateString()} ${time.toLocaleTimeString()}</div>
+    <div class="center"><span class="tag">${r.type === 'checkout' ? 'CHECKED OUT' : 'RETURNED'}</span></div>
+    <div class="divider"></div>
+    ${r.studentName ? `<div class="row"><span>Student</span><span>${r.studentName}</span></div>` : ''}
+    <div class="divider"></div>
+    ${itemRows}
+    <div class="divider"></div>
+    ${r.type === 'checkout' && r.dueAt ? `<div class="row"><span>Due</span><span>${new Date(r.dueAt).toLocaleString()}</span></div>` : ''}
+    ${r.reason ? `<div class="row"><span>Reason</span><span>${r.reason}</span></div>` : ''}
+    ${r.teacherName ? `<div class="row"><span>Teacher</span><span>${r.teacherName}</span></div>` : ''}
+    ${r.type === 'return' && r.conditionIn ? `<div class="row"><span>Condition</span><span>${r.conditionIn}</span></div>` : ''}
+    <div class="footer">Staff: ${r.managerName || ''}<br/>Thank you!</div>
+    <script>window.onload=function(){window.print();}<\/script>
+  </body></html>`)
+  win.document.close()
+}
+
 async function kioskAdminCall(action, payload = {}) {
   const res = await fetch(ADMIN_FN_URL, {
     method: 'POST',
@@ -168,6 +211,7 @@ export default function Kiosk() {
   const [kitAnomalyMsg, setKitAnomalyMsg]   = useState('')
   const [swapTargetId, setSwapTargetId]     = useState(null) // id of missing item awaiting swap scan
   const [message, setMessage]               = useState('')
+  const [lastReceipt, setLastReceipt]       = useState(null)
   const [overrideNeeded, setOverrideNeeded] = useState(false)
   const [overridePin, setOverridePin]       = useState('')
   const [returnPending, setReturnPending]       = useState(null)
@@ -582,11 +626,22 @@ export default function Kiosk() {
       const json = await res.json()
       if (json.error) { setMessage('Checkout failed: ' + json.error); return }
       setMessage(`✓ Checked out to ${student.name}`)
+      setLastReceipt({
+        type: 'checkout',
+        studentName: student.name,
+        managerName: manager?.name || approvedBy || '',
+        items: cart.filter(i => !i.blocked).map(i => ({ name: i.name, category: i.category })),
+        dueAt,
+        reason: reason || null,
+        teacherName: teacherName || null,
+        className: className || null,
+        time: new Date().toISOString(),
+      })
       setCart([]); setStudent(null); setReason(''); setTeacherName(''); setClassName('')
       setDuration('tomorrow'); setConditionOut('good'); setConditionOutNotes('')
       setNoFormOverride(false); setState('scan_student')
       loadLiveData()
-      setTimeout(() => setMessage(''), 3000)
+      setTimeout(() => { setMessage(''); setLastReceipt(null) }, 6000)
     } catch (err) {
       setMessage('Error: ' + err.message); setTimeout(() => setMessage(''), 4000)
     }
@@ -613,7 +668,17 @@ export default function Kiosk() {
       )
       const json = await res.json()
       setMessage(json.error ? json.error : `✓ ${returnPending.name} returned`)
-      if (!json.error) loadLiveData()
+      if (!json.error) {
+        setLastReceipt({
+          type: 'return',
+          studentName: returnCheckoutRecord?.cm_students?.name || null,
+          managerName: manager?.name || '',
+          items: [{ name: returnPending.name, category: returnPending.category }],
+          conditionIn: returnCondition,
+          time: new Date().toISOString(),
+        })
+        loadLiveData()
+      }
     } catch (err) {
       setMessage('Connection error: ' + err.message)
     }
@@ -621,7 +686,7 @@ export default function Kiosk() {
     setReturnCheckoutRecord(null)
     setReturnCondition('returned_ok')
     setReturnNotes('')
-    setTimeout(() => setMessage(''), 3000)
+    setTimeout(() => { setMessage(''); setLastReceipt(null) }, 6000)
   }, [returnPending, returnCondition, returnNotes, manager, loadLiveData])
 
   // ── Remove from cart ──────────────────────────────────────────────────────
@@ -733,6 +798,11 @@ export default function Kiosk() {
             <div className={styles.icon}>🪪</div>
             <h1>Scan student ID card</h1>
             {message && <p className={styles.flashMsg}>{message}</p>}
+            {lastReceipt?.type === 'checkout' && (
+              <button className={styles.secondaryBtn} onClick={() => printReceipt(lastReceipt)}>
+                🖨 Print Receipt
+              </button>
+            )}
             <p className={styles.hint}>Ctrl+R to return · Esc to lock</p>
           </div>
         )}
@@ -1058,6 +1128,11 @@ export default function Kiosk() {
             <div className={`${styles.icon} ${styles.iconReturn}`}>📥</div>
             <h1>Scan equipment to return</h1>
             {message && <p className={styles.flashMsg}>{message}</p>}
+            {lastReceipt?.type === 'return' && (
+              <button className={styles.secondaryBtn} onClick={() => printReceipt(lastReceipt)}>
+                🖨 Print Receipt
+              </button>
+            )}
             <p className={styles.hint}>Esc to exit return mode</p>
             <button className={styles.cancelBtn}
               onClick={() => { setReturnPending(null); setMode('checkout'); setState('scan_student') }}>
