@@ -726,6 +726,19 @@
   color: #37B37E;
 }
 
+/* ── Kit RETURN checklist — rows wrap so the condition picker can drop to its
+   own line under the name once an item is scanned back in. ──────────────── */
+.checklistItemReturn {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.checklistItemReturn .conditionWrap {
+  flex-basis: 100%;
+  margin-left: 24px; /* lines up under the name, past the icon */
+  width: calc(100% - 24px);
+}
+
 /* ── Kit checklist (enhanced) ──────────────────────────────────────────────*/
 .kitChecklistHeader {
   padding: 14px 16px 10px;

@@ -16,7 +16,7 @@ const ADMIN_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmat
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 const EQUIPMENT_STATUSES = ['Available', 'Checked Out', 'Damaged', 'Needs Inspection', 'Maintenance', 'Retired', 'Lost']
-const EQUIPMENT_CATEGORIES = ['Camera', 'Lens', 'Audio', 'Lighting', 'Tripod', 'Bag', 'Drone', 'Computer', 'Accessory', 'Other']
+const EQUIPMENT_CATEGORIES = ['Camera', 'Lens', 'Mic', 'Audio', 'Lighting', 'Tripod', 'Bag', 'Drone', 'Computer', 'Accessory', 'Other']
 const FORM_STATUSES = [
   { value: 'form_on_file', label: 'Form on file' },
   { value: 'pending',      label: 'Pending'      },

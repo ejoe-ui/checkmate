@@ -9,10 +9,12 @@
     locked        → tap manager badge → manager_pin
     manager_pin   → enter PIN → scan_student
     scan_student  → tap student NFC → scan_assets
-    scan_assets   → tap equipment → cart builds → confirm checkout
-    kit_checklist → scan items inside a kit bag
-    return_scan   → Return button or Ctrl+R; tap equipment to return
-    blocked       → student is suspended
+    scan_assets          → tap equipment → cart builds → confirm checkout
+    kit_checklist        → scan items inside a kit bag (checkout side)
+    return_scan          → Return button or Ctrl+R; tap equipment to return
+    kit_return_checklist → tap a bag during return; scan each item back in,
+                            or mark it missing, then confirm the whole kit at once
+    blocked              → student is suspended
 
   HEADER BUTTONS:
     Return equipment  — enters return mode
@@ -28,6 +30,8 @@
     Mode 1 — PIN verify:  { managerId, pin }
     Mode 2 — Checkout:    { managerId, pin:"SESSION", studentId, equipmentIds[], dueAt, reason, teacherName, className }
     Mode 3 — Return:      { managerId, pin:"SESSION", action:"return", equipmentId }
+    Mode 4 — Return bulk: { managerId, pin:"SESSION", action:"returnBulk", items:[{equipmentId, conditionIn, conditionNotes}] }
+             (kit_return_checklist submits every scanned item this way in one call)
 */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
@@ -218,6 +222,12 @@ export default function Kiosk() {
   const [returnCheckoutRecord, setReturnCheckoutRecord] = useState(null)
   const [returnCondition, setReturnCondition]   = useState('returned_ok')
   const [returnNotes, setReturnNotes]           = useState('')
+  // Kit return checklist — mirrors kitItem/kitChecked/kitMissing above, but for the return side.
+  // kitReturnItem.contents: every item in the bag (+ the bag itself) that's currently checked out.
+  // kitReturnResolved: id -> { status: 'scanned' | 'missing', conditionIn?, notes? }
+  const [kitReturnItem, setKitReturnItem]             = useState(null)
+  const [kitReturnResolved, setKitReturnResolved]     = useState({})
+  const [kitReturnAnomalyMsg, setKitReturnAnomalyMsg] = useState('')
   const [conditionOut, setConditionOut]         = useState('good')
   const [conditionOutNotes, setConditionOutNotes] = useState('')
   const [approvedBy, setApprovedBy]             = useState('')
@@ -354,6 +364,7 @@ export default function Kiosk() {
     setMode('locked'); setState('locked'); setManager(null); setStudent(null)
     setCart([]); setKitItem(null); setKitChecked({}); setKitMissing({}); setKitAnomalyMsg(''); setSwapTargetId(null); setPin(''); setMessage('')
     setOverrideNeeded(false); setOverridePin(''); setReturnPending(null); setReturnCheckoutRecord(null)
+    setKitReturnItem(null); setKitReturnResolved({}); setKitReturnAnomalyMsg('')
     setDuration('tomorrow'); setCustomDue(''); setReason(''); setTeacherName(''); setClassName('')
     setConditionOut('good'); setConditionOutNotes(''); setApprovedBy(''); setNoFormOverride(false)
         setManualPick(false); setManualManagerId('')
@@ -378,7 +389,10 @@ export default function Kiosk() {
         setMode('return'); setState('return_scan')
       }
       if (e.key === 'Escape') {
-        if (state === 'return_scan') { setReturnPending(null); setMode('checkout'); setState('scan_student') }
+        if (state === 'kit_return_checklist') {
+          setKitReturnItem(null); setKitReturnResolved({}); setKitReturnAnomalyMsg(''); setState('return_scan')
+        }
+        else if (state === 'return_scan') { setReturnPending(null); setMode('checkout'); setState('scan_student') }
         else if (state !== 'locked' && state !== 'manager_pin') resetSession()
       }
     }
@@ -555,12 +569,48 @@ export default function Kiosk() {
 
     if (state === 'return_scan') {
       if (result.type === 'equipment') {
-        setReturnPending(result.data)
+        const item = result.data
+
+        // Tapping a bag during return opens the kit return checklist instead of a
+        // single-item return card — mirrors kit_checklist on the checkout side.
+        if (item.is_container) {
+          const { data: contents } = await supabase
+            .from('cm_equipment')
+            .select('id, name, category, nfc_uid, status, parent_container_id')
+            .eq('parent_container_id', item.id)
+            .order('name')
+
+          const candidateIds = [item.id, ...(contents ?? []).map(c => c.id)]
+          const { data: openRows } = await supabase
+            .from('cm_open_checkouts')
+            .select('id, equipment_id, student_name')
+            .in('equipment_id', candidateIds)
+          const openByEquip = Object.fromEntries((openRows ?? []).map(r => [r.equipment_id, r]))
+
+          // Only items actually checked out belong on the return checklist — a bag
+          // checked out "Bag only" (no contents scanned) will just show the bag itself.
+          const kitList = [item, ...(contents ?? [])]
+            .filter(e => openByEquip[e.id])
+            .map(e => ({ ...e, checkoutId: openByEquip[e.id].id, studentName: openByEquip[e.id].student_name }))
+
+          if (kitList.length === 0) {
+            setMessage(`Nothing in "${item.name}" is currently checked out.`)
+            setTimeout(() => setMessage(''), 3000)
+            return
+          }
+
+          setKitReturnItem({ ...item, contents: kitList })
+          setKitReturnResolved({}); setKitReturnAnomalyMsg('')
+          setState('kit_return_checklist')
+          return
+        }
+
+        setReturnPending(item)
         // Fetch the open checkout so we can show checkout condition on the return card
         const { data: checkoutRecord } = await supabase
           .from('cm_checkouts')
           .select('condition_out, condition_out_notes, cm_students!student_id(name)')
-          .eq('equipment_id', result.data.id)
+          .eq('equipment_id', item.id)
           .is('checked_in_at', null)
           .order('checked_out_at', { ascending: false })
           .limit(1)
@@ -572,7 +622,26 @@ export default function Kiosk() {
       }
       return
     }
-  }, [state, student, kitItem, kitChecked, kitMissing, swapTargetId, commitKitToCart, bumpSession])
+
+    if (state === 'kit_return_checklist') {
+      if (result.type === 'equipment') {
+        const scanned = result.data
+        const match = kitReturnItem?.contents.find(c => c.id === scanned.id)
+        if (!match) {
+          setKitReturnAnomalyMsg(`⚠ "${scanned.name}" isn't part of this return.`)
+          setTimeout(() => setKitReturnAnomalyMsg(''), 4000)
+          return
+        }
+        if (kitReturnResolved[match.id]) return // already resolved — ignore re-scan
+        setKitReturnResolved(prev => ({ ...prev, [match.id]: { status: 'scanned', conditionIn: 'returned_ok', notes: '' } }))
+        setKitReturnAnomalyMsg('')
+      } else {
+        setMessage('Scan equipment, not a student or manager badge')
+        setTimeout(() => setMessage(''), 2000)
+      }
+      return
+    }
+  }, [state, student, kitItem, kitChecked, kitMissing, swapTargetId, commitKitToCart, bumpSession, kitReturnItem, kitReturnResolved])
 
   // ── PIN submit ────────────────────────────────────────────────────────────
   const handlePinSubmit = useCallback(async (e) => {
@@ -688,6 +757,62 @@ export default function Kiosk() {
     setReturnNotes('')
     setTimeout(() => { setMessage(''); setLastReceipt(null) }, 6000)
   }, [returnPending, returnCondition, returnNotes, manager, loadLiveData])
+
+  // ── Confirm kit return ────────────────────────────────────────────────────
+  // Submits every scanned (non-missing) item in one returnBulk call. Items marked
+  // "Missing" are left checked out on purpose — a note was already logged for each
+  // when it was flagged, so nothing silently disappears from the open-checkouts log.
+  const confirmKitReturn = useCallback(async () => {
+    if (!kitReturnItem) return
+    const scanned = kitReturnItem.contents.filter(c => kitReturnResolved[c.id]?.status === 'scanned')
+    const missingCount = kitReturnItem.contents.length - scanned.length
+
+    if (scanned.length === 0) {
+      setMessage(`No items returned from "${kitReturnItem.name}" — ${missingCount} flagged missing.`)
+      setKitReturnItem(null); setKitReturnResolved({}); setKitReturnAnomalyMsg(''); setState('return_scan')
+      setTimeout(() => setMessage(''), 5000)
+      return
+    }
+
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/checkmate-checkout`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+          body: JSON.stringify({
+            action: 'returnBulk',
+            managerId: manager.id,
+            pin: 'SESSION',
+            items: scanned.map(c => ({
+              equipmentId: c.id,
+              conditionIn: kitReturnResolved[c.id].conditionIn,
+              conditionNotes: kitReturnResolved[c.id].notes || null,
+            })),
+          }),
+        }
+      )
+      const json = await res.json()
+      if (json.error && !json.ok) {
+        setMessage('Kit return failed: ' + json.error)
+      } else {
+        setMessage(`✓ ${scanned.length} item${scanned.length === 1 ? '' : 's'} returned from "${kitReturnItem.name}"${missingCount ? ` · ${missingCount} flagged missing` : ''}`)
+        setLastReceipt({
+          type: 'return',
+          studentName: kitReturnItem.contents[0]?.studentName || null,
+          managerName: manager?.name || '',
+          items: scanned.map(c => ({ name: c.name, category: c.category })),
+          time: new Date().toISOString(),
+        })
+        loadLiveData()
+      }
+    } catch (err) {
+      setMessage('Connection error: ' + err.message)
+    }
+    setKitReturnItem(null); setKitReturnResolved({}); setKitReturnAnomalyMsg('')
+    setState('return_scan')
+    setTimeout(() => { setMessage(''); setLastReceipt(null) }, 6000)
+  }, [kitReturnItem, kitReturnResolved, manager, loadLiveData])
 
   // ── Remove from cart ──────────────────────────────────────────────────────
   const removeFromCart = useCallback((index) => {
@@ -1116,6 +1241,94 @@ export default function Kiosk() {
                   disabled={!allResolved && totalCount > 0}
                   onClick={() => commitKitToCart(kitChecked, kitMissing)}>
                   Add to cart
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* KIT RETURN — checklist */}
+        {state === 'kit_return_checklist' && kitReturnItem && (() => {
+          const resolvedCount = Object.keys(kitReturnResolved).length
+          const totalCount    = kitReturnItem.contents.length
+          const allResolved   = totalCount > 0 && kitReturnItem.contents.every(c => kitReturnResolved[c.id])
+          const pct = totalCount > 0 ? (resolvedCount / totalCount) * 100 : 100
+          return (
+            <div className={styles.assetView}>
+              <div className={styles.kitChecklistHeader}>
+                <div className={styles.kitChecklistBag}>📥 {kitReturnItem.name}</div>
+                <p className={styles.kitChecklistSub}>Scan each item as it comes back — mark anything missing</p>
+                <div className={styles.kitProgress}>
+                  <div className={styles.kitProgressBar} style={{ width: `${pct}%` }} />
+                </div>
+                <span className={styles.kitProgressLabel}>{resolvedCount} / {totalCount} items resolved</span>
+              </div>
+
+              <div className={styles.checklist}>
+                {kitReturnItem.contents.map(c => {
+                  const resolved = kitReturnResolved[c.id]
+                  const scanned  = resolved?.status === 'scanned'
+                  const missing  = resolved?.status === 'missing'
+                  return (
+                    <div key={c.id}
+                      className={`${styles.checklistItem} ${styles.checklistItemReturn} ${scanned ? styles.checklistItemOk : missing ? styles.checklistItemMissing : ''}`}>
+                      <span className={styles.checklistIcon}>{scanned ? '✅' : missing ? '❌' : '⬜'}</span>
+                      <span className={styles.checklistName}>
+                        {c.name}{c.studentName ? ` · ${c.studentName}` : ''}
+                      </span>
+
+                      {!resolved && (
+                        <button className={styles.markMissingBtn}
+                          onClick={() => {
+                            setKitReturnResolved(prev => ({ ...prev, [c.id]: { status: 'missing' } }))
+                            // Best-effort — logs to the checkout's history so it surfaces in Admin.
+                            // Doesn't block the UI: the item is flagged locally either way.
+                            kioskAdminCall('checkout.addOverdueNote', {
+                              managerId: manager.id, pin: 'SESSION',
+                              checkoutId: c.checkoutId,
+                              note: `Not returned with "${kitReturnItem.name}" kit — flagged at kit return.`,
+                              noteType: 'other',
+                            })
+                          }}>
+                          Missing
+                        </button>
+                      )}
+                      {missing && <span className={styles.missingTag}>Still checked out</span>}
+
+                      {scanned && (
+                        <div className={styles.conditionWrap}>
+                          <select className={styles.selectField} value={resolved.conditionIn}
+                            onChange={e => setKitReturnResolved(prev => ({ ...prev, [c.id]: { ...prev[c.id], conditionIn: e.target.value } }))}>
+                            <option value="returned_ok">✓ Returned OK</option>
+                            <option value="returned_with_issue">⚠ Returned with issue</option>
+                            <option value="missing_accessory">📦 Missing accessory</option>
+                            <option value="damaged">💥 Damaged</option>
+                            <option value="needs_inspection">🔍 Needs inspection</option>
+                          </select>
+                          {resolved.conditionIn !== 'returned_ok' && (
+                            <input className={styles.textField}
+                              placeholder="Notes (optional)"
+                              value={resolved.notes || ''}
+                              onChange={e => setKitReturnResolved(prev => ({ ...prev, [c.id]: { ...prev[c.id], notes: e.target.value } }))} />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {kitReturnAnomalyMsg && <div className={styles.kitAnomalyBanner}>{kitReturnAnomalyMsg}</div>}
+
+              <div className={styles.cartActions}>
+                <button className={styles.cancelBtn}
+                  onClick={() => { setKitReturnItem(null); setKitReturnResolved({}); setKitReturnAnomalyMsg(''); setState('return_scan') }}>
+                  ← Cancel
+                </button>
+                <button className={styles.primaryBtn}
+                  disabled={!allResolved}
+                  onClick={confirmKitReturn}>
+                  Confirm return
                 </button>
               </div>
             </div>
