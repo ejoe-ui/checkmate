@@ -46,7 +46,9 @@ Deno.serve(async (req) => {
     // ── PIN verify for all write actions ──────────────────────────────────
     const READ_ACTIONS  = new Set(['equipment.getHistory', 'checkout.listHistory', 'checkout.getOverdueNotes'])
     // Kiosk actions: manager already authenticated via NFC + PIN at kiosk login — accept pin='SESSION'
-    const KIOSK_ACTIONS = new Set(['equipment.hotSwap'])
+    // checkout.addOverdueNote is included so a kit-return checklist can flag an item that
+    // didn't come back with its bag, without forcing a PIN re-entry for a routine scan-flow step.
+    const KIOSK_ACTIONS = new Set(['equipment.hotSwap', 'checkout.addOverdueNote'])
     const isWrite = !action.endsWith('.list') && !READ_ACTIONS.has(action)
     if (isWrite) {
       const { data: mgr } = await supabase
