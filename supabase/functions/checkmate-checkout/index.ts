@@ -20,6 +20,14 @@
        conditionIn?, conditionNotes? }
      → sets checked_in_at, returned_by_manager_id, condition_in, condition_notes
         equipment status = "Available"
+
+  4. Return (bulk — kit checklist)
+     { managerId, pin:"SESSION", action:"returnBulk",
+       items: [{ equipmentId, conditionIn?, conditionNotes? }, ...] }
+     → same effect as Return, applied to every item in the list. Items are
+       processed independently — one bad id in the batch doesn't block the rest.
+       Returns { ok, results: [{ equipmentId, error }] }; ok is false if any
+       item failed, so the caller can tell partial success from total success.
 */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -67,46 +75,27 @@ Deno.serve(async (req) => {
     // ── MODE 3: Return ─────────────────────────────────────────────────────
     if (action === 'return') {
       const { equipmentId, conditionIn, conditionNotes } = body
-
-      // Find the open checkout for this equipment
-      const { data: checkout, error: findErr } = await supabase
-        .from('cm_checkouts')
-        .select('id')
-        .eq('equipment_id', equipmentId)
-        .is('checked_in_at', null)
-        .order('checked_out_at', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (findErr || !checkout) return json({ error: 'No open checkout found for this equipment' }, corsHeaders)
-
-      const { error: returnErr } = await supabase
-        .from('cm_checkouts')
-        .update({
-          checked_in_at:          new Date().toISOString(),
-          returned_by_manager_id: managerId,
-          condition_in:           conditionIn   ?? 'returned_ok',
-          condition_notes:        conditionNotes ?? null,
-        })
-        .eq('id', checkout.id)
-
-      if (returnErr) return json({ error: returnErr.message }, corsHeaders)
-
-      // Set equipment status based on return condition
-      const returnedStatus = (conditionIn === 'damaged')
-        ? 'Damaged'
-        : (conditionIn && conditionIn !== 'returned_ok')
-          ? 'Needs Inspection'
-          : 'Available'
-
-      const { error: eqErr } = await supabase
-        .from('cm_equipment')
-        .update({ status: returnedStatus })
-        .eq('id', equipmentId)
-
-      if (eqErr) return json({ error: eqErr.message }, corsHeaders)
-
+      const err = await returnOneItem(supabase, managerId, equipmentId, conditionIn, conditionNotes)
+      if (err) return json({ error: err }, corsHeaders)
       return json({ ok: true }, corsHeaders)
+    }
+
+    // ── MODE 4: Return (bulk — kit checklist) ───────────────────────────────
+    if (action === 'returnBulk') {
+      const { items } = body
+      if (!items?.length) return json({ error: 'items is required' }, corsHeaders)
+
+      const results = []
+      for (const it of items as Array<{ equipmentId: string; conditionIn?: string; conditionNotes?: string }>) {
+        const err = await returnOneItem(supabase, managerId, it.equipmentId, it.conditionIn, it.conditionNotes)
+        results.push({ equipmentId: it.equipmentId, error: err })
+      }
+
+      const failed = results.filter(r => r.error)
+      return json(
+        { ok: failed.length === 0, results, error: failed.length ? `${failed.length} of ${results.length} items failed` : undefined },
+        corsHeaders
+      )
     }
 
     // ── MODE 2: Checkout ───────────────────────────────────────────────────
@@ -153,4 +142,56 @@ function json(data: unknown, headers: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     headers: { ...headers, 'Content-Type': 'application/json' },
   })
+}
+
+// Closes one open checkout for a piece of equipment and updates its status.
+// Shared by MODE 3 (single return) and MODE 4 (bulk return, e.g. a kit checklist).
+// Returns an error message string on failure, or null on success.
+async function returnOneItem(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  managerId: string,
+  equipmentId: string,
+  conditionIn?: string,
+  conditionNotes?: string
+): Promise<string | null> {
+  if (!equipmentId) return 'equipmentId is required'
+
+  // Find the open checkout for this equipment
+  const { data: checkout, error: findErr } = await supabase
+    .from('cm_checkouts')
+    .select('id')
+    .eq('equipment_id', equipmentId)
+    .is('checked_in_at', null)
+    .order('checked_out_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (findErr || !checkout) return 'No open checkout found for this equipment'
+
+  const { error: returnErr } = await supabase
+    .from('cm_checkouts')
+    .update({
+      checked_in_at:          new Date().toISOString(),
+      returned_by_manager_id: managerId,
+      condition_in:           conditionIn   ?? 'returned_ok',
+      condition_notes:        conditionNotes ?? null,
+    })
+    .eq('id', checkout.id)
+
+  if (returnErr) return returnErr.message
+
+  // Set equipment status based on return condition
+  const returnedStatus = (conditionIn === 'damaged')
+    ? 'Damaged'
+    : (conditionIn && conditionIn !== 'returned_ok')
+      ? 'Needs Inspection'
+      : 'Available'
+
+  const { error: eqErr } = await supabase
+    .from('cm_equipment')
+    .update({ status: returnedStatus })
+    .eq('id', equipmentId)
+
+  return eqErr ? eqErr.message : null
 }
