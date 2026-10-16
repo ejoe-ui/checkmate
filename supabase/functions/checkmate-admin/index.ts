@@ -14,6 +14,7 @@
 
   student.list          → all students with form_status + photo
   student.setFormStatus → update equipment_form_status for a student
+  student.delete        → remove a student (moves history to a duplicate)
   student.syncPhoto     → copy photo_url from PassAble students table by nfc_uid
 
   manager.list          → all managers
@@ -33,6 +34,46 @@ const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+
+
+// ── Card matching helpers ───────────────────────────────────────────────────
+// Readers send the same card as lowercase hex, uppercase hex, or decimal.
+// cardKey() reduces any of those to one canonical form for comparison;
+// cardVariants() lists every spelling to search for in the database.
+function cardKey(raw: unknown): string | null {
+  const t = String(raw ?? '').trim()
+  if (!t) return null
+  if (/[a-fA-F]/.test(t)) return t.toUpperCase().padStart(8, '0')
+  const n = parseInt(t, 10)
+  if (isNaN(n) || n < 0) return t.toUpperCase()
+  return n.toString(16).toUpperCase().padStart(8, '0')
+}
+function cardVariants(raw: unknown): string[] {
+  const t = String(raw ?? '').trim()
+  if (!t) return []
+  const k = cardKey(t) || t
+  return [...new Set([t, t.toLowerCase(), t.toUpperCase(), k, k.toLowerCase()])]
+}
+// Returns "Name (equipment)" etc. if the card is already used anywhere in
+// CheckMate, ignoring the record being saved. null = card is free.
+async function findCardOwner(
+  supabase: any, raw: unknown, exclude?: { table: string; id?: string | null },
+): Promise<string | null> {
+  const v = cardVariants(raw)
+  if (!v.length) return null
+  const tables: [string, string][] = [
+    ['cm_students', 'student'], ['cm_equipment', 'equipment'], ['cm_managers', 'manager badge'],
+  ]
+  for (const [table, label] of tables) {
+    let q = supabase.from(table).select('id, name').in('nfc_uid', v).limit(1)
+    if (exclude?.table === table && exclude.id) q = q.neq('id', exclude.id)
+    const { data } = await q
+    if (data?.length) return `${data[0].name} (${label})`
+  }
+  return null
+}
+const takenMsg = (owner: string) =>
+  `That card is already assigned to ${owner}. Use a different card, or remove it from ${owner.replace(/ \(.*\)$/, '')} first.`
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -79,6 +120,10 @@ Deno.serve(async (req) => {
     // ── equipment.upsert ──────────────────────────────────────────────────
     if (action === 'equipment.upsert') {
       const { equipment } = body
+      if (equipment?.nfc_uid) {
+        const owner = await findCardOwner(supabase, equipment.nfc_uid, { table: 'cm_equipment', id: equipment.id })
+        if (owner) return json({ error: takenMsg(owner) }, corsHeaders)
+      }
       const { data, error } = await supabase
         .from('cm_equipment')
         .upsert(equipment, { onConflict: 'id' })
@@ -196,7 +241,7 @@ Deno.serve(async (req) => {
     if (action === 'student.list') {
       const { data, error } = await supabase
         .from('cm_students')
-        .select('id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at, temp_access_expires_at, notes')
+        .select('id, passable_id, name, email, class_group, nfc_uid, status, photo_url, photo_file, photo_available, equipment_form_status, media_directory_opt_out, last_synced_at, temp_access_expires_at, notes')
         .order('name')
       if (error) return json({ error: error.message }, corsHeaders)
 
@@ -237,6 +282,10 @@ Deno.serve(async (req) => {
     if (action === 'student.addStudent') {
       const { name, email, classGroup, nfcUid, formStatus, grantTempPass } = body
       if (!name?.trim()) return json({ error: 'Name is required' }, corsHeaders)
+      if (nfcUid?.trim()) {
+        const owner = await findCardOwner(supabase, nfcUid)
+        if (owner) return json({ error: takenMsg(owner) }, corsHeaders)
+      }
 
       const validStatuses = ['form_on_file', 'no_form', 'pending', 'restricted', 'temp_pass']
       const status = validStatuses.includes(formStatus) ? formStatus : 'no_form'
@@ -310,13 +359,32 @@ Deno.serve(async (req) => {
 
       // Match by passable_id (Aeries student ID)
       const existingMap = new Map((existing || []).map(s => [s.passable_id, s]))
+      // Hand-added students (no passable_id yet), keyed by card. A sync now
+      // LINKS them to their PassAble record instead of inserting a duplicate
+      // row for the same kid (duplicates break the kiosk lookup).
+      const manualByCard = new Map(
+        (existing || [])
+          .filter((s: any) => !s.passable_id && s.nfc_uid)
+          .map((s: any) => [cardKey(s.nfc_uid), s])
+      )
+      let linked = 0
 
       let added = 0, updated = 0
 
       for (const p of passable) {
         if (!p.id || !p.full_name) continue
-        const ex = existingMap.get(p.id)
         const now = new Date().toISOString()
+        let ex = existingMap.get(p.id)
+
+        const pKey = cardKey(p.nfc_uid)
+        if (!ex && pKey && manualByCard.has(pKey)) {
+          // Keep the hand-entered card value as-is: it's the one that scans.
+          ex = manualByCard.get(pKey)
+          manualByCard.delete(pKey)
+          await supabase.from('cm_students').update({ passable_id: p.id }).eq('id', ex.id)
+          ex = { ...ex, passable_id: p.id }
+          linked++
+        }
 
         if (ex) {
           // Build update — never overwrite nfc_uid if CheckMate already has one
@@ -328,7 +396,7 @@ Deno.serve(async (req) => {
           }
           // Only sync nfc_uid from PassAble if CheckMate doesn't have one yet —
           // unless overwriteNfcUid=true is passed (e.g. after a mass card reissue).
-          if (p.nfc_uid && (overwriteNfcUid || !ex.nfc_uid)) {
+          if (p.nfc_uid && (overwriteNfcUid || !ex.nfc_uid) && cardKey(p.nfc_uid) !== cardKey(ex.nfc_uid)) {
             updateFields.nfc_uid = p.nfc_uid
           }
           await supabase.from('cm_students').update(updateFields).eq('id', ex.id)
@@ -365,7 +433,7 @@ Deno.serve(async (req) => {
         restricted++
       }
 
-      return json({ ok: true, added, updated, restricted }, corsHeaders)
+      return json({ ok: true, added, updated, linked, restricted }, corsHeaders)
     }
 
     // ── student.setNote ───────────────────────────────────────────────────
@@ -394,19 +462,63 @@ Deno.serve(async (req) => {
       if (nfcUid !== undefined) {
         const trimmed = nfcUid?.trim() || null
         if (trimmed) {
-          const { data: dupe } = await supabase
-            .from('cm_students')
-            .select('id, name')
-            .eq('nfc_uid', trimmed)
-            .neq('id', studentId)
-            .maybeSingle()
-          if (dupe) return json({ error: `That card is already assigned to ${dupe.name}.` }, corsHeaders)
+          const owner = await findCardOwner(supabase, trimmed, { table: 'cm_students', id: studentId })
+          if (owner) return json({ error: takenMsg(owner) }, corsHeaders)
         }
         fields.nfc_uid = trimmed
       }
       if (Object.keys(fields).length === 0) return json({ ok: true }, corsHeaders)
       const { error } = await supabase.from('cm_students').update(fields).eq('id', studentId)
       return error ? json({ error: error.message }, corsHeaders) : json({ ok: true }, corsHeaders)
+    }
+
+    // ── student.delete ────────────────────────────────────────────────────
+    // Removes a student record (e.g. a duplicate). Requires PIN.
+    // - Blocked if the student has equipment checked out right now.
+    // - Past checkout history is never thrown away: if a matching duplicate
+    //   exists (same card, or same first + last name), history moves there.
+    //   Otherwise the delete is refused and Restricted is suggested instead.
+    if (action === 'student.delete') {
+      const { studentId } = body
+      if (!studentId) return json({ error: 'studentId is required' }, corsHeaders)
+
+      const { data: st } = await supabase
+        .from('cm_students').select('id, name, nfc_uid, passable_id').eq('id', studentId).maybeSingle()
+      if (!st) return json({ error: 'Student not found' }, corsHeaders)
+
+      const { data: openCo } = await supabase
+        .from('cm_checkouts').select('id').eq('student_id', studentId).is('checked_in_at', null).limit(1)
+      if (openCo?.length) {
+        return json({ error: `${st.name} has equipment checked out. Check it in before deleting.` }, corsHeaders)
+      }
+
+      const { count: historyCount } = await supabase
+        .from('cm_checkouts').select('id', { count: 'exact', head: true }).eq('student_id', studentId)
+
+      let movedTo: { id: string; name: string } | null = null
+      if (historyCount) {
+        const nameKey = (n: string) => {
+          const w = String(n || '').toLowerCase().trim().split(/\s+/)
+          return w.length ? `${w[0]} ${w[w.length - 1]}` : ''
+        }
+        const { data: others } = await supabase
+          .from('cm_students').select('id, name, nfc_uid, passable_id').neq('id', studentId)
+        const key = cardKey(st.nfc_uid)
+        const matches = (others || []).filter((o: any) =>
+          (key && cardKey(o.nfc_uid) === key) || nameKey(o.name) === nameKey(st.name))
+        const target = matches.find((o: any) => o.passable_id) || matches[0]
+        if (!target) {
+          return json({ error: `${st.name} has ${historyCount} past checkout(s) and no duplicate record to move them to. Set them to Restricted instead so the history is kept.` }, corsHeaders)
+        }
+        await supabase.from('cm_checkouts').update({ student_id: target.id }).eq('student_id', studentId)
+        await supabase.from('cm_overdue_notes').update({ student_id: target.id }).eq('student_id', studentId)
+        movedTo = { id: target.id, name: target.name }
+      }
+
+      const { error } = await supabase.from('cm_students').delete().eq('id', studentId)
+      return error
+        ? json({ error: error.message }, corsHeaders)
+        : json({ ok: true, deleted: st.name, historyMovedTo: movedTo?.name ?? null, historyCount: historyCount ?? 0 }, corsHeaders)
     }
 
     // ── student.syncPhoto ─────────────────────────────────────────────────
@@ -700,6 +812,10 @@ Deno.serve(async (req) => {
     const nfcOk = !!nfcUid?.trim()
     if (newPin && !pinOk) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
     if (!pinOk && !nfcOk) return json({ error: 'Enter a PIN or scan/enter an NFC badge' }, corsHeaders)
+    if (nfcOk) {
+      const owner = await findCardOwner(supabase, nfcUid)
+      if (owner) return json({ error: takenMsg(owner) }, corsHeaders)
+    }
     const { data, error } = await supabase
       .from('cm_managers')
       .insert({
@@ -720,7 +836,13 @@ Deno.serve(async (req) => {
     if (!targetManagerId) return json({ error: 'targetManagerId is required' }, corsHeaders)
     const fields: Record<string, unknown> = {}
     if (name !== undefined) fields.name = name?.trim() || null
-    if (nfcUid !== undefined) fields.nfc_uid = nfcUid?.trim() ? nfcUid.trim().toUpperCase() : null
+    if (nfcUid !== undefined) {
+      if (nfcUid?.trim()) {
+        const owner = await findCardOwner(supabase, nfcUid, { table: 'cm_managers', id: targetManagerId })
+        if (owner) return json({ error: takenMsg(owner) }, corsHeaders)
+      }
+      fields.nfc_uid = nfcUid?.trim() ? nfcUid.trim().toUpperCase() : null
+    }
     if (newPin !== undefined && newPin !== '') {
       if (!/^\d{4,6}$/.test(newPin)) return json({ error: 'PIN must be 4-6 digits' }, corsHeaders)
       fields.pin_hash = newPin

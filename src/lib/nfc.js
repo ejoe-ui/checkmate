@@ -21,32 +21,31 @@ export function toHexUid(raw) {
 export async function resolveUid(uid) {
   if (!uid) return { type: 'unknown', uid }
 
+  // Every spelling of this card (as typed, lower/upper case, decimal→hex),
+  // so capitalization differences between the reader, manual entry and
+  // PassAble never cause a miss.
   const raw = String(uid).trim()
   const hex = toHexUid(raw)
-  const candidates = hex && hex !== raw ? [raw, hex] : [raw]
+  const candidates = [...new Set(
+    [raw, raw.toLowerCase(), raw.toUpperCase(), hex, hex?.toLowerCase()].filter(Boolean)
+  )]
 
-  const { data: equipment } = await supabase
-    .from('cm_equipment')
-    .select('*')
-    .in('nfc_uid', candidates)
-    .maybeSingle()
+  // limit(1) instead of maybeSingle(): maybeSingle() errors when a card
+  // matches 2+ rows, which made the scan silently read as "unknown".
+  const first = async (table, cols, prefer) => {
+    const { data } = await supabase.from(table).select(cols).in('nfc_uid', candidates).limit(5)
+    if (!data?.length) return null
+    if (data.length > 1) console.warn(`[CheckMate] Card ${raw} is on ${data.length} ${table} rows`, data.map(r => r.name))
+    return (prefer && data.find(prefer)) || data[0]
+  }
 
+  const equipment = await first('cm_equipment', '*')
   if (equipment) return { type: 'equipment', uid, data: equipment }
 
-  const { data: student } = await supabase
-    .from('cm_students')
-    .select('*')
-    .in('nfc_uid', candidates)
-    .maybeSingle()
-
+  const student = await first('cm_students', '*', s => s.passable_id)
   if (student) return { type: 'student', uid, data: student }
 
-  const { data: manager } = await supabase
-    .from('cm_managers')
-    .select('id, name, nfc_uid, active')
-    .in('nfc_uid', candidates)
-    .maybeSingle()
-
+  const manager = await first('cm_managers', 'id, name, nfc_uid, active')
   if (manager) return { type: 'manager', uid, data: manager }
 
   return { type: 'unknown', uid }

@@ -432,6 +432,12 @@ export default function Kiosk() {
         setTimeout(() => setMessage(''), 3000)
         return
       }
+      if (result.type === 'equipment') {
+        // Used to fail silently, e.g. a student card that was once tested as equipment.
+        setMessage(`That card is registered as equipment (${result.data.name}), not a student`)
+        setTimeout(() => setMessage(''), 4000)
+        return
+      }
       if (result.type !== 'student') return
       const s = result.data
 

@@ -1764,10 +1764,11 @@ function StudentsTab({ manager, pin }) {
 
   async function handleSyncFromPassable() {
     setSyncingPassable(true); setSyncMsg('')
-    const { ok, added, updated, restricted, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin, overwriteNfcUid: overwriteNfc })
+    const { ok, added, updated, linked, restricted, error } = await adminCall('student.syncFromPassAble', { managerId: manager.id, pin, overwriteNfcUid: overwriteNfc })
     setSyncingPassable(false)
     if (error) { setSyncMsg('Sync failed: ' + error); return }
     const parts = [`${added} added`, `${updated} updated`]
+    if (linked > 0) parts.push(`${linked} hand-added linked to PassAble`)
     if (restricted > 0) parts.push(`${restricted} restricted (removed from PassAble)`)
     setSyncMsg(`✓ ${parts.join(', ')}`)
     load()
@@ -1795,6 +1796,20 @@ function StudentsTab({ manager, pin }) {
     setStudents(prev => prev.map(s => s.id === selectedStudent.id ? updated : s))
     setSelectedStudent(updated)
     setNoteSaving(false)
+  }
+
+  async function handleDeleteStudent() {
+    if (!selectedStudent || noteSaving) return
+    const s = selectedStudent
+    const label = s.passable_id ? 'synced from PassAble' : 'added by hand'
+    if (!window.confirm(`Delete ${s.name}?\n\nThis record was ${label}. This can't be undone. If they have past checkouts, the history moves to their other record.`)) return
+    setNoteSaving(true)
+    const { data, error } = await adminCall('student.delete', { managerId: manager.id, pin, studentId: s.id })
+    setNoteSaving(false)
+    if (error) { alert(error); return }
+    if (data?.historyMovedTo) alert(`Deleted. ${data.historyCount} past checkout(s) moved to ${data.historyMovedTo}.`)
+    setSelectedStudent(null)
+    setStudents(prev => prev.filter(x => x.id !== s.id))
   }
 
   function handleStudentAdded(newStudent) {
@@ -2021,6 +2036,13 @@ function StudentsTab({ manager, pin }) {
                     nfcUidText.trim() !== (selectedStudent.nfc_uid ?? '')) && (
                     <span style={{ fontSize: 11, color: '#A8ABB8' }}>Unsaved changes</span>
                   )}
+                  <button
+                    onClick={handleDeleteStudent}
+                    disabled={noteSaving}
+                    style={{ marginLeft: 'auto', background: 'none', border: '1px solid #FCA5A5', color: '#DC2626', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}
+                  >
+                    Delete student
+                  </button>
                 </div>
               </div>
             </div>
